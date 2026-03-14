@@ -4,13 +4,12 @@ import json
 import os
 
 from panda3d.core import TextNode
-from panda3d.bullet import BulletBoxShape, BulletRigidBodyNode
 from direct.gui.DirectGui import OnscreenText
 
 from game.entities.npc import InteractableNpc, attach_billboard_label, build_humanoid_npc
 from game.systems.inventory import Inventory
 from game.ui.widgets import DraggableWindow, ItemSlotCollection, build_grid_slot_defs
-from game.world.geometry import make_box_geom, make_cylinder
+from game.world.structures import build_structure_shell
 
 BANK_PROXIMITY = 7.0
 BANK_SLOTS = 80
@@ -39,50 +38,23 @@ class Bank(InteractableNpc):
 
     def _build_visual(self):
         self.root.setScale(BANK_SCALE)
-        floor_color = (0.56, 0.48, 0.36, 1)
-        wall_color = (0.72, 0.66, 0.54, 1)
-        trim_color = (0.33, 0.22, 0.14, 1)
-        roof_color = (0.24, 0.14, 0.1, 1)
-        counter_color = (0.42, 0.27, 0.17, 1)
-        pillar_color = (0.62, 0.56, 0.44, 1)
-
-        floor = self.root.attachNewNode(make_box_geom(10.5, 8.5, 0.35, floor_color))
-        floor.setPos(0, 0, 0.18)
-        back_wall = self.root.attachNewNode(make_box_geom(10.0, 0.4, 4.8, wall_color))
-        back_wall.setPos(0, 3.95, 2.6)
-        left_wall = self.root.attachNewNode(make_box_geom(0.4, 7.2, 4.8, wall_color))
-        left_wall.setPos(-4.8, 0.35, 2.6)
-        right_wall = self.root.attachNewNode(make_box_geom(0.4, 7.2, 4.8, wall_color))
-        right_wall.setPos(4.8, 0.35, 2.6)
-        rear_gable = self.root.attachNewNode(make_box_geom(10.0, 0.35, 1.7, wall_color))
-        rear_gable.setPos(0, 3.9, 5.4)
-        front_beam = self.root.attachNewNode(make_box_geom(10.0, 0.35, 0.55, trim_color))
-        front_beam.setPos(0, -3.6, 4.95)
-
-        for x in (-4.1, -1.4, 1.4, 4.1):
-            pillar = self.root.attachNewNode(make_cylinder(0.22, 4.5, pillar_color))
-            pillar.setPos(x, -3.25, 0.35)
-
-        roof_main = self.root.attachNewNode(make_box_geom(11.4, 9.4, 0.35, roof_color))
-        roof_main.setPos(0, 0.1, 5.15)
-        roof_main.setP(-8)
-        roof_cap = self.root.attachNewNode(make_box_geom(10.4, 8.4, 0.25, (0.44, 0.29, 0.18, 1)))
-        roof_cap.setPos(0, 0.18, 5.62)
-        roof_cap.setP(-8)
-        counter = self.root.attachNewNode(make_box_geom(7.4, 1.2, 1.3, counter_color))
-        counter.setPos(0, 1.4, 0.95)
-        desk_top = self.root.attachNewNode(make_box_geom(7.8, 1.45, 0.18, trim_color))
-        desk_top.setPos(0, 1.25, 1.58)
-        ledger = self.root.attachNewNode(make_box_geom(1.3, 0.9, 0.18, (0.16, 0.24, 0.22, 1)))
-        ledger.setPos(-1.7, 1.0, 1.77)
-        chest = self.root.attachNewNode(make_box_geom(1.2, 0.9, 1.0, (0.5, 0.38, 0.18, 1)))
-        chest.setPos(2.6, 1.05, 0.72)
-        sign_board = self.root.attachNewNode(make_box_geom(3.6, 0.18, 1.1, (0.2, 0.12, 0.08, 1)))
-        sign_board.setPos(0, -3.55, 4.0)
+        shell = build_structure_shell(
+            "bank",
+            self.root,
+            self.render,
+            self.bullet_world,
+            (self.pos.x, self.pos.y, self.pos.z),
+            scale=BANK_SCALE,
+        )
+        self._collision_nodes = shell["collision_nodes"]
+        sign_x, sign_y, sign_z = shell["anchors"]["sign"]
+        sign_board = self.root.attachNewNode("bank_sign_anchor")
+        sign_board.setPos(sign_x, sign_y, sign_z)
         attach_billboard_label(sign_board, "BANK", (0, -0.15, -0.18), 1.2, (1, 0.9, 0.55, 1))
 
         banker_spot = self.root.attachNewNode("banker_spot")
-        banker_spot.setPos(0, 2.2, 0.35)
+        banker_x, banker_y, banker_z = shell["anchors"]["npc"]
+        banker_spot.setPos(banker_x, banker_y, banker_z)
         banker_spot.setScale(1.0 / BANK_SCALE)
         build_humanoid_npc(
             banker_spot,
@@ -91,39 +63,6 @@ class Bank(InteractableNpc):
             accent_color=(0.9, 0.82, 0.45, 1),
             label="Banker",
         )
-        self._build_collision()
-
-    def _build_collision(self):
-        self._collision_nodes = []
-        collision_boxes = [
-            ((0, 0, 0.18), (10.5, 8.5, 0.35)),
-            ((0, 3.95, 2.6), (10.0, 0.4, 4.8)),
-            ((-4.8, 0.35, 2.6), (0.4, 7.2, 4.8)),
-            ((4.8, 0.35, 2.6), (0.4, 7.2, 4.8)),
-            ((0, 1.4, 0.95), (7.4, 1.2, 1.3)),
-            ((-4.1, -3.25, 2.25), (0.5, 0.6, 4.5)),
-            ((-1.4, -3.25, 2.25), (0.5, 0.6, 4.5)),
-            ((1.4, -3.25, 2.25), (0.5, 0.6, 4.5)),
-            ((4.1, -3.25, 2.25), (0.5, 0.6, 4.5)),
-        ]
-        for pos, size in collision_boxes:
-            self._add_collision_box(pos, size)
-
-    def _add_collision_box(self, pos, size):
-        sx, sy, sz = size
-        px, py, pz = pos
-        shape = BulletBoxShape((sx * BANK_SCALE * 0.5, sy * BANK_SCALE * 0.5, sz * BANK_SCALE * 0.5))
-        body = BulletRigidBodyNode("bank_collision")
-        body.setMass(0)
-        body.addShape(shape)
-        body_np = self.render.attachNewNode(body)
-        body_np.setPos(
-            self.pos.x + px * BANK_SCALE,
-            self.pos.y + py * BANK_SCALE,
-            self.pos.z + pz * BANK_SCALE,
-        )
-        self.bullet_world.attachRigidBody(body)
-        self._collision_nodes.append(body_np)
 
     def update(self, dt, player_pos, hud):
         self.update_prompt(player_pos, hud, ui_open=self.ui_open)
@@ -190,3 +129,11 @@ class Bank(InteractableNpc):
                     self.bank_inv.from_dict(json.load(handle))
             except Exception:
                 pass
+
+    def remove_from_world(self, hud=None):
+        for node in getattr(self, "_collision_nodes", []):
+            if node is not None and not node.isEmpty():
+                self.bullet_world.removeRigidBody(node.node())
+                node.removeNode()
+        self._collision_nodes = []
+        super().remove_from_world(hud)

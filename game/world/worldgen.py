@@ -60,84 +60,163 @@ FISHING_BANK_OFFSET = RIVER_WIDTH * 0.56
 FISHING_PATH_JITTER = 4.0
 
 
-def generate_world(render, bullet_world, terrain, seed=42):
+def generate_world(render, bullet_world, terrain, seed=42, parent=None, layout=None):
+    scene_root = parent if parent is not None else render
+    decor_root = scene_root.attachNewNode("worldgen_decor")
     occupied = []
     resources = []
     hostiles = []
-    cluster_centers = []
-    forest_centers = []
-    ore_centers = []
+    load_mode = "cached" if layout is not None else "generated"
+    if layout is None:
+        cluster_centers = []
+        forest_centers = []
+        ore_centers = []
 
-    _generate_forests(
-        random.Random(seed ^ 0x1111),
-        render,
-        bullet_world,
-        terrain,
-        occupied,
-        resources,
-        forest_centers,
-        cluster_centers,
-    )
+        _generate_forests(
+            random.Random(seed ^ 0x1111),
+            scene_root,
+            bullet_world,
+            terrain,
+            occupied,
+            resources,
+            forest_centers,
+            cluster_centers,
+        )
 
-    _generate_ore_patches(
-        random.Random(seed ^ 0x2222),
-        render,
-        bullet_world,
-        terrain,
-        occupied,
-        resources,
-        ore_centers,
-        cluster_centers,
-    )
+        _generate_ore_patches(
+            random.Random(seed ^ 0x2222),
+            scene_root,
+            bullet_world,
+            terrain,
+            occupied,
+            resources,
+            ore_centers,
+            cluster_centers,
+        )
 
-    river_paths = _generate_river_paths(random.Random(seed ^ 0x3333))
-    terrain.set_river_paths(river_paths, RIVER_WIDTH)
-    terrain.set_forest_patches([(cx, cy, CLUSTER_RADIUS + 16.0) for cx, cy in forest_centers])
-    terrain.set_ore_patches([(cx, cy, PATCH_RADIUS + 8.0) for cx, cy in ore_centers])
-    _reground_resources(resources, terrain)
+        river_paths = _generate_river_paths(random.Random(seed ^ 0x3333))
+        terrain.set_river_paths(river_paths, RIVER_WIDTH)
+        terrain.set_forest_patches([(cx, cy, CLUSTER_RADIUS + 16.0) for cx, cy in forest_centers])
+        terrain.set_ore_patches([(cx, cy, PATCH_RADIUS + 8.0) for cx, cy in ore_centers])
+        _reground_resources(resources, terrain)
 
-    resources, hostiles = _cull_land_on_water(resources, hostiles, terrain)
+        resources, hostiles = _cull_land_on_water(resources, hostiles, terrain)
 
-    _generate_river_spots(
-        random.Random(seed ^ 0x6666),
-        render,
-        bullet_world,
-        terrain,
-        occupied,
-        resources,
-        river_paths,
-    )
-    _generate_hostiles(
-        random.Random(seed ^ 0x4444),
-        render,
-        bullet_world,
-        terrain,
-        occupied,
-        hostiles,
-    )
-    _reground_hostiles(hostiles)
+        _generate_river_spots(
+            random.Random(seed ^ 0x6666),
+            scene_root,
+            bullet_world,
+            terrain,
+            occupied,
+            resources,
+            river_paths,
+        )
+        _generate_hostiles(
+            random.Random(seed ^ 0x4444),
+            scene_root,
+            bullet_world,
+            terrain,
+            occupied,
+            hostiles,
+        )
+        _reground_hostiles(hostiles)
 
-    for cx, cy in ore_centers:
-        _place_ore_accent(render, terrain, random.Random((seed ^ 0x7777) + int(cx * 3) + int(cy * 5)), cx, cy, PATCH_RADIUS + 4.0)
+        for cx, cy in ore_centers:
+            _place_ore_accent(decor_root, terrain, random.Random((seed ^ 0x7777) + int(cx * 3) + int(cy * 5)), cx, cy, PATCH_RADIUS + 4.0)
 
-    decor_rng = random.Random(seed ^ 0x5555)
-    for cx, cy in forest_centers:
-        _place_forest_floor(render, terrain, decor_rng, cx, cy, CLUSTER_RADIUS * 0.9)
+        decor_rng = random.Random(seed ^ 0x5555)
+        for cx, cy in forest_centers:
+            _place_forest_floor(decor_root, terrain, decor_rng, cx, cy, CLUSTER_RADIUS * 0.9)
 
-    for path in river_paths:
-        _place_river_decal(render, terrain, path, RIVER_WIDTH, RIVER_COLOR)
+        for path in river_paths:
+            _place_river_decal(decor_root, terrain, path, RIVER_WIDTH, RIVER_COLOR)
+        layout = _build_layout(seed, river_paths, forest_centers, ore_centers, resources, hostiles)
+    else:
+        river_paths = [[tuple(point) for point in path] for path in layout.get("river_paths", [])]
+        forest_centers = [tuple(center) for center in layout.get("forest_centers", [])]
+        ore_centers = [tuple(center) for center in layout.get("ore_centers", [])]
+        terrain.set_river_paths(river_paths, RIVER_WIDTH)
+        terrain.set_forest_patches([(cx, cy, CLUSTER_RADIUS + 16.0) for cx, cy in forest_centers])
+        terrain.set_ore_patches([(cx, cy, PATCH_RADIUS + 8.0) for cx, cy in ore_centers])
+
+        for entry in layout.get("resources", []):
+            kind = entry["type"]
+            pos = tuple(entry["pos"])
+            scale = entry.get("scale", 1.0)
+            if kind == "tree":
+                resources.append(Tree(scene_root, bullet_world, pos, scale=scale))
+            elif kind == "rock":
+                resources.append(Rock(scene_root, bullet_world, pos, scale=scale))
+            elif kind == "fishing":
+                resources.append(FishingSpot(scene_root, bullet_world, pos))
+
+        for entry in layout.get("hostiles", []):
+            kind = entry["type"]
+            pos = tuple(entry["pos"])
+            patrol_center = tuple(entry.get("patrol_center", entry["pos"]))
+            hostile_cls = Spitter if kind == "spitter" else Follower
+            hostiles.append(
+                hostile_cls(
+                    scene_root,
+                    pos,
+                    patrol_center=patrol_center,
+                    terrain=terrain,
+                    bullet_world=bullet_world,
+                )
+            )
+
+        for cx, cy in ore_centers:
+            _place_ore_accent(decor_root, terrain, random.Random((seed ^ 0x7777) + int(cx * 3) + int(cy * 5)), cx, cy, PATCH_RADIUS + 4.0)
+        decor_rng = random.Random(seed ^ 0x5555)
+        for cx, cy in forest_centers:
+            _place_forest_floor(decor_root, terrain, decor_rng, cx, cy, CLUSTER_RADIUS * 0.9)
+        for path in river_paths:
+            _place_river_decal(decor_root, terrain, path, RIVER_WIDTH, RIVER_COLOR)
 
     trees = sum(1 for r in resources if isinstance(r, Tree))
     rocks = sum(1 for r in resources if isinstance(r, Rock))
     fish = sum(1 for r in resources if isinstance(r, FishingSpot))
     print(
-        f"[worldgen] trees={trees}  rocks={rocks}  fishing_spots={fish}  "
+        f"[worldgen:{load_mode}] trees={trees}  rocks={rocks}  fishing_spots={fish}  "
         f"hostiles={len(hostiles)}  rivers={len(river_paths)}"
     )
-    return resources, hostiles
+    return resources, hostiles, decor_root, layout
 
 
-def _place_river_decal(render, terrain, path, half_width, color):
+def _build_layout(seed, river_paths, forest_centers, ore_centers, resources, hostiles):
+    layout = {
+        "seed": seed,
+        "river_paths": [[[x, y] for x, y in path] for path in river_paths],
+        "forest_centers": [[x, y] for x, y in forest_centers],
+        "ore_centers": [[x, y] for x, y in ore_centers],
+        "resources": [],
+        "hostiles": [],
+    }
+    for resource in resources:
+        entry = {"pos": [resource.pos.x, resource.pos.y, resource.pos.z]}
+        if isinstance(resource, Tree):
+            entry["type"] = "tree"
+            entry["scale"] = resource.scale
+        elif isinstance(resource, Rock):
+            entry["type"] = "rock"
+            entry["scale"] = resource.scale
+        elif isinstance(resource, FishingSpot):
+            entry["type"] = "fishing"
+        else:
+            continue
+        layout["resources"].append(entry)
+    for hostile in hostiles:
+        layout["hostiles"].append(
+            {
+                "type": "spitter" if isinstance(hostile, Spitter) else "scout",
+                "pos": [hostile.pos.x, hostile.pos.y, hostile.pos.z],
+                "patrol_center": [hostile.patrol_center.x, hostile.patrol_center.y, hostile.patrol_center.z],
+            }
+        )
+    return layout
+
+
+def _place_river_decal(parent, terrain, path, half_width, color):
     if len(path) < 2:
         return
 
@@ -187,14 +266,14 @@ def _place_river_decal(render, terrain, path, half_width, color):
     geom.addPrimitive(tris)
     node = GeomNode("river_decal")
     node.addGeom(geom)
-    np = render.attachNewNode(node)
+    np = parent.attachNewNode(node)
     np.setBin("fixed", 15)
     np.setDepthOffset(8)
     np.setTwoSided(True)
     np.setTransparency(TransparencyAttrib.MAlpha)
 
 
-def _place_circle_decal(render, terrain, cx, cy, radius, color, z_offset, segments=24):
+def _place_circle_decal(parent, terrain, cx, cy, radius, color, z_offset, segments=24):
     fmt = GeomVertexFormat.getV3n3c4()
     vdata = GeomVertexData("terrain_decal", fmt, Geom.UHStatic)
     vdata.setNumRows(segments + 1)
@@ -227,13 +306,13 @@ def _place_circle_decal(render, terrain, cx, cy, radius, color, z_offset, segmen
     geom.addPrimitive(tris)
     node = GeomNode("terrain_decal")
     node.addGeom(geom)
-    np = render.attachNewNode(node)
+    np = parent.attachNewNode(node)
     np.setBin("fixed", 15)
     np.setDepthOffset(4)
     np.setTransparency(TransparencyAttrib.MAlpha)
 
 
-def _place_forest_floor(render, terrain, rng, cx, cy, radius):
+def _place_forest_floor(parent, terrain, rng, cx, cy, radius):
     litter_colors = [
         (0.21, 0.17, 0.08, 0.09),
         (0.18, 0.14, 0.06, 0.08),
@@ -250,10 +329,10 @@ def _place_forest_floor(render, terrain, rng, cx, cy, radius):
             continue
         size = rng.uniform(0.8, 2.2)
         color = litter_colors[rng.randrange(len(litter_colors))]
-        _place_circle_decal(render, terrain, x, y, size, color, FOREST_DECAL_Z, segments=8)
+        _place_circle_decal(parent, terrain, x, y, size, color, FOREST_DECAL_Z, segments=8)
 
 
-def _place_ore_accent(render, terrain, rng, cx, cy, radius):
+def _place_ore_accent(parent, terrain, rng, cx, cy, radius):
     for _ in range(10):
         angle = rng.uniform(0.0, math.tau)
         dist = rng.uniform(0.0, radius)
@@ -264,7 +343,7 @@ def _place_ore_accent(render, terrain, rng, cx, cy, radius):
         if terrain.is_river(x, y, margin=1.0):
             continue
         size = rng.uniform(1.4, 4.6)
-        _place_circle_decal(render, terrain, x, y, size, ORE_ACCENT_COLOR, FOREST_DECAL_Z - 0.01, segments=10)
+        _place_circle_decal(parent, terrain, x, y, size, ORE_ACCENT_COLOR, FOREST_DECAL_Z - 0.01, segments=10)
 
 
 def _cull_land_on_water(resources, hostiles, terrain):

@@ -449,6 +449,20 @@ Check `game/app.py` camera UI state handling. The camera changes behavior when U
 - save skill XP
 - decide whether hostile/resource state should persist
 
+### Priority 6: Level residency
+
+- current cached overworld path avoids random regeneration, but still rebuilds the scene and hitches on return
+- likely next optimization:
+  - keep overworld resident in memory
+  - stop ticking it while another level is active
+  - detach or disable inactive level physics
+  - reactivate the overworld instantly on return
+- scaling direction:
+  - keep overworld pinned
+  - keep only a small number of recent sub-levels resident
+  - serialize evicted sub-level state and rebuild from saved data when revisited
+- do not plan around "all levels stay live forever" once content scales up significantly
+
 ---
 
 ## Longer-Term Direction

@@ -8,7 +8,7 @@ from panda3d.bullet import (
     BulletTriangleMeshShape,
 )
 
-from game.world.collision import attach_static_box_collider
+from game.world.collision import attach_static_box_collider, remove_static_collider
 from game.world.geometry import make_box_geom, make_terrain_geom
 from game.world.terrain import TerrainField
 
@@ -18,14 +18,17 @@ TERRAIN_COLLISION_BASE_Z = -20.0
 
 
 class World:
-    def __init__(self, render, bullet_world, seed=42):
+    def __init__(self, render, bullet_world, seed=42, world_half=WORLD_HALF):
         self.render = render
         self.bullet_world = bullet_world
-        self.terrain = TerrainField(world_half=WORLD_HALF, seed=seed)
+        self.world_half = world_half
+        self.terrain = TerrainField(world_half=world_half, seed=seed)
         self._ground_np = None
         self._base_ground_np = None
         self._terrain_body_np = None
         self._terrain_mesh = None
+        self._scenery_nodes = []
+        self._scenery_colliders = []
 
         self._build_base_ground()
         self.refresh_terrain()
@@ -39,7 +42,7 @@ class World:
             self._terrain_body_np.removeNode()
             self._terrain_body_np = None
 
-        ground_node = make_terrain_geom(self.terrain, WORLD_HALF, TERRAIN_RENDER_STEP)
+        ground_node = make_terrain_geom(self.terrain, self.world_half, TERRAIN_RENDER_STEP)
         self._ground_np = self.render.attachNewNode(ground_node)
         self._ground_np.setBin("fixed", 10)
         self._build_terrain_collision()
@@ -72,16 +75,40 @@ class World:
         geom_node = make_box_geom(size[0], size[1], size[2], color)
         np = self.render.attachNewNode(geom_node)
         np.setPos(*pos)
-        attach_static_box_collider(self.render, self.bullet_world, "wall", pos, size)
+        collider = attach_static_box_collider(self.render, self.bullet_world, "wall", pos, size)
+        self._scenery_nodes.append(np)
+        self._scenery_colliders.append(collider)
 
     def _make_scenery(self):
         wall_color = (0.6, 0.5, 0.4, 1)
+        edge = self.world_half
 
         # Boundary walls (invisible fences)
         for x, y, sx, sy in [
-            (0,  500, 1000, 2),
-            (0, -500, 1000, 2),
-            ( 500, 0, 2, 1000),
-            (-500, 0, 2, 1000),
+            (0, edge, edge * 2, 2),
+            (0, -edge, edge * 2, 2),
+            (edge, 0, 2, edge * 2),
+            (-edge, 0, 2, edge * 2),
         ]:
-            self._make_box((x, y, 2), (sx, sy, 4), wall_color)
+            self._make_box((x, y, 6), (sx, sy, 12), wall_color)
+
+    def destroy(self):
+        if self._ground_np is not None and not self._ground_np.isEmpty():
+            self._ground_np.removeNode()
+            self._ground_np = None
+        if self._terrain_body_np is not None and not self._terrain_body_np.isEmpty():
+            self.bullet_world.removeRigidBody(self._terrain_body_np.node())
+            self._terrain_body_np.removeNode()
+            self._terrain_body_np = None
+        if self._base_ground_np is not None and not self._base_ground_np.isEmpty():
+            self.bullet_world.removeRigidBody(self._base_ground_np.node())
+            self._base_ground_np.removeNode()
+            self._base_ground_np = None
+        for collider in self._scenery_colliders:
+            remove_static_collider(self.bullet_world, collider)
+        self._scenery_colliders = []
+        for node in self._scenery_nodes:
+            if node is not None and not node.isEmpty():
+                node.removeNode()
+        self._scenery_nodes = []
+        self._terrain_mesh = None

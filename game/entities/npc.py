@@ -197,3 +197,14 @@ class InteractableNpc:
         elif self._prompt_shown:
             hud.clear_prompt_if(self.prompt_text)
             self._prompt_shown = False
+
+    def remove_from_world(self, hud=None):
+        if hasattr(self, "close_ui"):
+            self.close_ui()
+        if self._prompt_shown and hud is not None:
+            hud.clear_prompt_if(self.prompt_text)
+        if hasattr(self, "_ghost_np") and self._ghost_np is not None and not self._ghost_np.isEmpty():
+            self.bullet_world.removeGhost(self._ghost_np.node())
+            self._ghost_np.removeNode()
+        if self.root is not None and not self.root.isEmpty():
+            self.root.removeNode()

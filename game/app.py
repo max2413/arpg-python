@@ -17,14 +17,11 @@ from panda3d.core import (
 
 from game.core.camera import CameraController
 from game.entities.player import Player
-from game.services.bank import Bank
-from game.services.vendor import Vendor
 from game.systems.combat import in_attack_range
 from game.systems.inventory import Inventory
 from game.systems.skills import Skills
 from game.ui.hud import HUD
-from game.world.world import World
-from game.world.worldgen import generate_world
+from game.world.levels import LevelManager
 
 RESPAWN_DELAY = 3.0
 COMBAT_TICK = 0.2
@@ -59,19 +56,13 @@ class Game(ShowBase):
         self.inventory = Inventory(size=28)
         self.inventory.add_item("gold", 1000)
         self.skills = Skills()
-        self.world = World(self.render, self.bullet_world, seed=world_seed)
         self._setup_lighting()
-        self.player = Player(self.render, self.bullet_world, self.inventory, terrain=self.world.terrain)
-        self.cam_controller = CameraController(self.cam, self.player)
+        self.player = Player(self.render, self.bullet_world, self.inventory, terrain=None)
+        self.cam_controller = CameraController(self.cam, self.player, self.bullet_world)
         self.hud = HUD(self.inventory, self.skills)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
-
-        self.resources, self.hostiles = generate_world(self.render, self.bullet_world, self.world.terrain, seed=world_seed)
-        self.world.refresh_terrain()
-        self._spawn_point = self._get_spawn_point()
-        self.player.respawn((self._spawn_point.x, self._spawn_point.y, self._spawn_point.z))
-        self.bank = Bank(self.render, self.bullet_world, (20, 0, 0), self.inventory)
-        self.vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory)
+        self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
+        self._load_level("overworld", "default")
 
         self.accept("i", self.hud.toggle_inventory)
         self.accept("c", self.hud.toggle_equipment)
@@ -121,15 +112,21 @@ class Game(ShowBase):
             if hasattr(self, "hud"):
                 self.hud.show_prompt("Collision debug: OFF")
 
-    def _get_spawn_point(self):
-        ground_z = self.world.terrain.height_at(0, 0)
-        return Vec3(0, 0, ground_z + PLAYER_TEST_DROP_HEIGHT)
+    @property
+    def _active_level(self):
+        return self.level_manager.get_active_level()
+
+    def _level_interactables(self):
+        return self._active_level.interactables if self._active_level is not None else []
+
+    def _level_ui_interactables(self):
+        return [obj for obj in self._level_interactables() if hasattr(obj, "ui_open")]
 
     def _any_ui_open(self):
-        return self.bank.ui_open or self.vendor.ui_open or self.hud.is_any_window_open() or self._paused
+        return self._modal_ui_open() or self.hud.is_any_window_open()
 
     def _modal_ui_open(self):
-        return self.bank.ui_open or self.vendor.ui_open or self._paused
+        return any(obj.ui_open for obj in self._level_ui_interactables()) or self._paused
 
     def _open_ui(self, ui_obj):
         ui_obj.open_ui()
@@ -166,9 +163,18 @@ class Game(ShowBase):
         )
         DirectButton(
             parent=self._pause_ui,
+            text="Regenerate World",
+            scale=0.055,
+            pos=(0, 0, -0.04),
+            command=self._regenerate_overworld,
+            frameColor=(0.45, 0.32, 0.1, 1),
+            text_fg=(1, 1, 1, 1),
+        )
+        DirectButton(
+            parent=self._pause_ui,
             text="Exit Game",
             scale=0.06,
-            pos=(0, 0, -0.12),
+            pos=(0, 0, -0.18),
             command=self.userExit,
             frameColor=(0.6, 0.1, 0.1, 1),
             text_fg=(1, 1, 1, 1),
@@ -181,27 +187,52 @@ class Game(ShowBase):
             self._pause_ui = None
         self._sync_camera_ui_state()
 
+    def _close_level_ui(self):
+        closed = False
+        for obj in self._level_ui_interactables():
+            if obj.ui_open:
+                obj.close_ui()
+                closed = True
+        if closed:
+            self._sync_camera_ui_state()
+        return closed
+
+    def _load_level(self, level_id, entry_key, force_regenerate=False):
+        self._set_selected_target(None)
+        self.player.clear_auto_attack()
+        self.player._clear_projectiles()
+        self._close_level_ui()
+        spawn = self.level_manager.load_level(level_id, entry_key, hud=self.hud, force_regenerate=force_regenerate)
+        self.player.terrain = self._active_level.world.terrain if self._active_level and self._active_level.world else None
+        self._spawn_point = Vec3(*spawn)
+        self.player.respawn((self._spawn_point.x, self._spawn_point.y, self._spawn_point.z))
+        self.hud.clear_prompt()
+        self.hud.clear_target()
+        self.hud.clear_range_indicators()
+        self._sync_camera_ui_state()
+
+    def _regenerate_overworld(self):
+        self.level_manager.clear_saved_overworld()
+        self._close_pause()
+        self._load_level("overworld", "default", force_regenerate=True)
+
     def _on_e_pressed(self):
         if self._paused or self.player.dead:
             return
-        if self.bank.ui_open:
-            self.bank.close_ui()
-            self._sync_camera_ui_state()
+        if self._close_level_ui():
             return
-        if self.vendor.ui_open:
-            self.vendor.close_ui()
-            self._sync_camera_ui_state()
-            return
-        if self.bank._in_range:
-            self._open_ui(self.bank)
-            return
-        if self.vendor._in_range:
-            self._open_ui(self.vendor)
-            return
-        for hostile in self.hostiles:
+        for teleporter in self._active_level.teleporters:
+            if teleporter.try_interact():
+                self._load_level(teleporter.destination_level_id, teleporter.destination_entry_key)
+                return
+        for interactable in self._level_interactables():
+            if getattr(interactable, "_in_range", False):
+                self._open_ui(interactable)
+                return
+        for hostile in self._active_level.hostiles:
             if hostile.try_player_interact(self.player, self.inventory, self.hud):
                 return
-        for resource in self.resources:
+        for resource in self._active_level.resources:
             resource._on_e_pressed()
 
     def _on_mouse1(self):
@@ -212,17 +243,11 @@ class Game(ShowBase):
     def _on_e_released(self):
         if self.player.dead:
             return
-        for resource in self.resources:
+        for resource in self._active_level.resources:
             resource._on_e_released()
 
     def _on_escape(self):
-        if self.bank.ui_open:
-            self.bank.close_ui()
-            self._sync_camera_ui_state()
-            return
-        if self.vendor.ui_open:
-            self.vendor.close_ui()
-            self._sync_camera_ui_state()
+        if self._close_level_ui():
             return
         if self._paused:
             self._close_pause()
@@ -276,7 +301,7 @@ class Game(ShowBase):
         best_score = None
         screen_pt = Point2()
 
-        for hostile in self.hostiles:
+        for hostile in self._active_level.hostiles:
             if not hostile.is_targetable():
                 continue
             world_pt = hostile.get_target_point()
@@ -306,7 +331,7 @@ class Game(ShowBase):
         best = None
         best_score = None
 
-        for hostile in self.hostiles:
+        for hostile in self._active_level.hostiles:
             if not hostile.is_targetable():
                 continue
             to_target = hostile.get_target_point() - player_pos
@@ -349,18 +374,19 @@ class Game(ShowBase):
             self.player.is_turning(),
         )
 
-        for resource in self.resources:
+        for resource in self._active_level.resources:
             resource.update(dt, player_pos, self.player, self.inventory, self.skills, self.hud)
-
-        self.bank.update(dt, player_pos, self.hud)
-        self.vendor.update(dt, player_pos, self.hud)
-        for hostile in self.hostiles:
+        for interactable in self._level_interactables():
+            interactable.update(dt, player_pos, self.hud)
+        for teleporter in self._active_level.teleporters:
+            teleporter.update(player_pos, self.hud)
+        for hostile in self._active_level.hostiles:
             hostile.update(dt, self.player, self.hud)
 
         while self._combat_tick_accum >= COMBAT_TICK:
             self._combat_tick_accum -= COMBAT_TICK
             self.player.combat_tick(COMBAT_TICK, self._selected_target, self.hud)
-            for hostile in self.hostiles:
+            for hostile in self._active_level.hostiles:
                 hostile.combat_tick(COMBAT_TICK, self.player, self.hud)
 
         self.player.update_projectiles(dt, self.hud)
