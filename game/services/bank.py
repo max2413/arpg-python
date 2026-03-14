@@ -4,6 +4,7 @@ import json
 import os
 
 from panda3d.core import TextNode
+from panda3d.bullet import BulletBoxShape, BulletRigidBodyNode
 from direct.gui.DirectGui import OnscreenText
 
 from game.entities.npc import InteractableNpc, attach_billboard_label, build_humanoid_npc
@@ -11,7 +12,7 @@ from game.systems.inventory import Inventory
 from game.ui.widgets import DraggableWindow, ItemSlotCollection, build_grid_slot_defs
 from game.world.geometry import make_box_geom, make_cylinder
 
-BANK_PROXIMITY = 5.0
+BANK_PROXIMITY = 7.0
 BANK_SLOTS = 80
 BANK_COLS = 8
 BANK_ROWS = 10
@@ -22,6 +23,7 @@ SAVE_PATH = os.path.join(
     "data",
     "save.json",
 )
+BANK_SCALE = 2.0
 
 
 class Bank(InteractableNpc):
@@ -36,6 +38,7 @@ class Bank(InteractableNpc):
         super().__init__(render, bullet_world, pos, BANK_PROXIMITY, "Press E to talk to Banker")
 
     def _build_visual(self):
+        self.root.setScale(BANK_SCALE)
         floor_color = (0.56, 0.48, 0.36, 1)
         wall_color = (0.72, 0.66, 0.54, 1)
         trim_color = (0.33, 0.22, 0.14, 1)
@@ -80,6 +83,7 @@ class Bank(InteractableNpc):
 
         banker_spot = self.root.attachNewNode("banker_spot")
         banker_spot.setPos(0, 2.2, 0.35)
+        banker_spot.setScale(1.0 / BANK_SCALE)
         build_humanoid_npc(
             banker_spot,
             body_color=(0.22, 0.46, 0.34, 1),
@@ -87,6 +91,39 @@ class Bank(InteractableNpc):
             accent_color=(0.9, 0.82, 0.45, 1),
             label="Banker",
         )
+        self._build_collision()
+
+    def _build_collision(self):
+        self._collision_nodes = []
+        collision_boxes = [
+            ((0, 0, 0.18), (10.5, 8.5, 0.35)),
+            ((0, 3.95, 2.6), (10.0, 0.4, 4.8)),
+            ((-4.8, 0.35, 2.6), (0.4, 7.2, 4.8)),
+            ((4.8, 0.35, 2.6), (0.4, 7.2, 4.8)),
+            ((0, 1.4, 0.95), (7.4, 1.2, 1.3)),
+            ((-4.1, -3.25, 2.25), (0.5, 0.6, 4.5)),
+            ((-1.4, -3.25, 2.25), (0.5, 0.6, 4.5)),
+            ((1.4, -3.25, 2.25), (0.5, 0.6, 4.5)),
+            ((4.1, -3.25, 2.25), (0.5, 0.6, 4.5)),
+        ]
+        for pos, size in collision_boxes:
+            self._add_collision_box(pos, size)
+
+    def _add_collision_box(self, pos, size):
+        sx, sy, sz = size
+        px, py, pz = pos
+        shape = BulletBoxShape((sx * BANK_SCALE * 0.5, sy * BANK_SCALE * 0.5, sz * BANK_SCALE * 0.5))
+        body = BulletRigidBodyNode("bank_collision")
+        body.setMass(0)
+        body.addShape(shape)
+        body_np = self.render.attachNewNode(body)
+        body_np.setPos(
+            self.pos.x + px * BANK_SCALE,
+            self.pos.y + py * BANK_SCALE,
+            self.pos.z + pz * BANK_SCALE,
+        )
+        self.bullet_world.attachRigidBody(body)
+        self._collision_nodes.append(body_np)
 
     def update(self, dt, player_pos, hud):
         self.update_prompt(player_pos, hud, ui_open=self.ui_open)

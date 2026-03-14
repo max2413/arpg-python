@@ -1,12 +1,10 @@
-"""
-resources.py — Tree, Rock, FishingSpot node classes with harvest logic.
-State machine: IDLE → HARVESTING → DEPLETED → RESPAWNING → IDLE
-"""
+"""Resource nodes with harvest logic and world collision."""
 
 import math
 from panda3d.core import Vec3, NodePath, TransparencyAttrib
 from panda3d.bullet import BulletGhostNode, BulletSphereShape
 
+from game.world.collision import attach_static_box_collider, remove_static_collider
 from game.world.geometry import make_box_geom, make_cylinder, make_sphere_approx
 
 # State constants
@@ -33,6 +31,7 @@ class ResourceNode:
         self.harvest_timer = 0.0
         self.respawn_timer = 0.0
         self.in_range = False
+        self.blocker_np = None
 
         self.root = NodePath("resource_root")
         self.root.reparentTo(render)
@@ -70,6 +69,23 @@ class ResourceNode:
 
     def _reset_look(self):
         pass  # Overridden
+
+    def remove_from_world(self):
+        if self.ghost_np and not self.ghost_np.isEmpty():
+            self.bullet_world.removeGhost(self.ghost)
+            self.ghost_np.removeNode()
+        remove_static_collider(self.bullet_world, self.blocker_np)
+        if self.root and not self.root.isEmpty():
+            self.root.removeNode()
+
+    def set_ground_pos(self, pos):
+        self.pos = Vec3(*pos)
+        self.root.setPos(self.pos)
+        if self.ghost_np and not self.ghost_np.isEmpty():
+            self.ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
+        remove_static_collider(self.bullet_world, self.blocker_np)
+        self.blocker_np = None
+        self._build_blocker()
 
     def _check_proximity(self, player_pos):
         dx = player_pos.x - self.pos.x
@@ -136,7 +152,8 @@ class ResourceNode:
 # ---------------------------------------------------------------------------
 
 class Tree(ResourceNode):
-    def __init__(self, render, bullet_world, pos):
+    def __init__(self, render, bullet_world, pos, scale=1.0):
+        self.scale = scale
         super().__init__(render, bullet_world, pos,
                          item_id="wood", skill="Woodcutting",
                          harvest_time=2.5, xp_reward=25)
@@ -147,10 +164,21 @@ class Tree(ResourceNode):
         # Foliage (sphere on top)
         foliage = self.root.attachNewNode(make_sphere_approx(1.5, (0.15, 0.55, 0.1, 1)))
         foliage.setPos(0, 0, 3.5)
+        self.root.setScale(self.scale)
         self._trunk = trunk
         self._foliage = foliage
         self._depleted_color = (0.4, 0.35, 0.3, 1)
         self._active_foliage_color = (0.15, 0.55, 0.1, 1)
+        self._build_blocker()
+
+    def _build_blocker(self):
+        self.blocker_np = attach_static_box_collider(
+            self.render,
+            self.bullet_world,
+            "tree_blocker",
+            (self.pos.x, self.pos.y, self.pos.z + 0.9 * self.scale),
+            (0.45 * self.scale, 0.45 * self.scale, 1.8 * self.scale),
+        )
 
     def _set_depleted_look(self):
         self._foliage.setColorScale(0.5, 0.5, 0.5, 1)
@@ -166,7 +194,8 @@ class Tree(ResourceNode):
 # ---------------------------------------------------------------------------
 
 class Rock(ResourceNode):
-    def __init__(self, render, bullet_world, pos):
+    def __init__(self, render, bullet_world, pos, scale=1.0):
+        self.scale = scale
         super().__init__(render, bullet_world, pos,
                          item_id="ore", skill="Mining",
                          harvest_time=3.5, xp_reward=35)
@@ -178,7 +207,22 @@ class Rock(ResourceNode):
         b1.setPos(-0.3, 0, 0)
         b2 = self.root.attachNewNode(make_box_geom(1.0, 1.0, 1.5, c))
         b2.setPos(0.6, 0.2, 0.1)
+        self.root.setScale(self.scale)
         self._parts = [b1, b2]
+        self._build_blocker()
+
+    def _build_blocker(self):
+        self.blocker_np = attach_static_box_collider(
+            self.render,
+            self.bullet_world,
+            "rock_blocker",
+            (
+                self.pos.x + 0.1 * self.scale,
+                self.pos.y + 0.05 * self.scale,
+                self.pos.z + 0.55 * self.scale,
+            ),
+            (1.1 * self.scale, 0.95 * self.scale, 1.1 * self.scale),
+        )
 
     def _set_depleted_look(self):
         for p in self._parts:
@@ -209,6 +253,9 @@ class FishingSpot(ResourceNode):
         self._plane.setP(-90)  # lay flat
         self._plane.setColor(0.2, 0.5, 0.8, 0.8)
         self._plane.setTransparency(TransparencyAttrib.MAlpha)
+        self._plane.setBin("fixed", 16)
+        self._plane.setDepthWrite(False)
+        self._plane.setDepthOffset(10)
 
     def update(self, dt, player_pos, player, inventory, skills, hud):
         # Animate the water shimmer

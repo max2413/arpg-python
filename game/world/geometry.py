@@ -32,6 +32,41 @@ def make_plane_geom(half_size=100, color=(0.28, 0.55, 0.22, 1)):
     return node
 
 
+def make_terrain_geom(terrain, half_size=500, step=16):
+    verts_per_side = int((half_size * 2) / step) + 1
+    fmt = GeomVertexFormat.getV3n3c4()
+    vdata = GeomVertexData("terrain", fmt, Geom.UHStatic)
+    vdata.setNumRows(verts_per_side * verts_per_side)
+
+    vertex = GeomVertexWriter(vdata, "vertex")
+    normal = GeomVertexWriter(vdata, "normal")
+    color_w = GeomVertexWriter(vdata, "color")
+
+    start = -half_size
+    for gy in range(verts_per_side):
+        y = start + gy * step
+        for gx in range(verts_per_side):
+            x = start + gx * step
+            z = terrain.height_at(x, y)
+            nx, ny, nz = terrain.normal_at(x, y)
+            vertex.addData3(x, y, z)
+            normal.addData3(nx, ny, nz)
+            color_w.addData4(*terrain.ground_color_at(x, y))
+
+    tris = GeomTriangles(Geom.UHStatic)
+    for gy in range(verts_per_side - 1):
+        for gx in range(verts_per_side - 1):
+            base = gy * verts_per_side + gx
+            tris.addVertices(base, base + 1, base + verts_per_side)
+            tris.addVertices(base + 1, base + verts_per_side + 1, base + verts_per_side)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("terrain_geom")
+    node.addGeom(geom)
+    return node
+
+
 def make_box_geom(sx, sy, sz, color):
     fmt = GeomVertexFormat.getV3n3c4()
     vdata = GeomVertexData("box", fmt, Geom.UHStatic)

@@ -1,55 +1,81 @@
-"""
-world.py — Ground plane, static scenery, collision geometry.
-"""
+"""World terrain, static scenery, and collision geometry."""
 
 from panda3d.core import Vec3
-from panda3d.bullet import BulletRigidBodyNode, BulletPlaneShape, BulletBoxShape
+from panda3d.bullet import (
+    BulletPlaneShape,
+    BulletRigidBodyNode,
+    BulletTriangleMesh,
+    BulletTriangleMeshShape,
+)
 
-from game.world.geometry import make_box_geom, make_plane_geom
+from game.world.collision import attach_static_box_collider
+from game.world.geometry import make_box_geom, make_terrain_geom
+from game.world.terrain import TerrainField
+
+WORLD_HALF = 500
+TERRAIN_RENDER_STEP = 12
+TERRAIN_COLLISION_BASE_Z = -20.0
 
 
 class World:
-    def __init__(self, render, bullet_world):
+    def __init__(self, render, bullet_world, seed=42):
         self.render = render
         self.bullet_world = bullet_world
+        self.terrain = TerrainField(world_half=WORLD_HALF, seed=seed)
+        self._ground_np = None
+        self._base_ground_np = None
+        self._terrain_body_np = None
+        self._terrain_mesh = None
 
-        self._make_ground()
+        self._build_base_ground()
+        self.refresh_terrain()
         self._make_scenery()
 
-    def _make_ground(self):
-        # Visual ground mesh — fixed bin sort=10 so decals (sort=15) draw on top
-        ground_node = make_plane_geom(500)
-        ground_np = self.render.attachNewNode(ground_node)
-        ground_np.setPos(0, 0, 0)
-        ground_np.setBin("fixed", 10)
+    def refresh_terrain(self):
+        if self._ground_np is not None and not self._ground_np.isEmpty():
+            self._ground_np.removeNode()
+        if self._terrain_body_np is not None and not self._terrain_body_np.isEmpty():
+            self.bullet_world.removeRigidBody(self._terrain_body_np.node())
+            self._terrain_body_np.removeNode()
+            self._terrain_body_np = None
 
-        # Bullet collision plane
+        ground_node = make_terrain_geom(self.terrain, WORLD_HALF, TERRAIN_RENDER_STEP)
+        self._ground_np = self.render.attachNewNode(ground_node)
+        self._ground_np.setBin("fixed", 10)
+        self._build_terrain_collision()
+
+    def _build_base_ground(self):
+        if self._base_ground_np is not None and not self._base_ground_np.isEmpty():
+            return
         shape = BulletPlaneShape(Vec3(0, 0, 1), 0)
-        body = BulletRigidBodyNode("ground")
+        body = BulletRigidBodyNode("base_ground")
+        body.setMass(0)
         body.addShape(shape)
-        body_np = self.render.attachNewNode(body)
-        body_np.setPos(0, 0, 0)
+        self._base_ground_np = self.render.attachNewNode(body)
+        self._base_ground_np.setPos(0, 0, TERRAIN_COLLISION_BASE_Z)
+        self.bullet_world.attachRigidBody(body)
+
+    def _build_terrain_collision(self):
+        mesh = BulletTriangleMesh()
+        geom = self._ground_np.node().getGeom(0)
+        mesh.addGeom(geom)
+        self._terrain_mesh = mesh
+        shape = BulletTriangleMeshShape(mesh, dynamic=False)
+        body = BulletRigidBodyNode("terrain_mesh")
+        body.setMass(0)
+        body.addShape(shape)
+        self._terrain_body_np = self.render.attachNewNode(body)
+        self._terrain_body_np.setPos(0, 0, 0)
         self.bullet_world.attachRigidBody(body)
 
     def _make_box(self, pos, size, color):
-        sx, sy, sz = size
-        # Visual
-        geom_node = make_box_geom(sx, sy, sz, color)
+        geom_node = make_box_geom(size[0], size[1], size[2], color)
         np = self.render.attachNewNode(geom_node)
         np.setPos(*pos)
-
-        # Physics
-        shape = BulletBoxShape(Vec3(sx / 2, sy / 2, sz / 2))
-        body = BulletRigidBodyNode("wall")
-        body.setMass(0)
-        body.addShape(shape)
-        body_np = self.render.attachNewNode(body)
-        body_np.setPos(pos[0], pos[1], pos[2])
-        self.bullet_world.attachRigidBody(body)
+        attach_static_box_collider(self.render, self.bullet_world, "wall", pos, size)
 
     def _make_scenery(self):
         wall_color = (0.6, 0.5, 0.4, 1)
-        platform_color = (0.5, 0.45, 0.35, 1)
 
         # Boundary walls (invisible fences)
         for x, y, sx, sy in [
@@ -59,7 +85,3 @@ class World:
             (-500, 0, 2, 1000),
         ]:
             self._make_box((x, y, 2), (sx, sy, 4), wall_color)
-
-        # Raised platforms for variety
-        self._make_box((5, -15, 0), (8, 8, 2), platform_color)
-        self._make_box((-5, 15, 0), (6, 6, 3), platform_color)

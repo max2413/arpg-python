@@ -91,14 +91,27 @@ class DraggableWindow:
 
         left, right, bottom, top = frame_size
         title_bottom = top - 0.1
+        self.title_bar_bg = DirectFrame(
+            parent=self.root,
+            frameColor=(0.22, 0.22, 0.22, 1),
+            relief=DGG.FLAT,
+            frameSize=(left, right, title_bottom, top),
+            pos=(0, 0, 0),
+        )
+        self.title_label = OnscreenText(
+            text=title,
+            parent=self.root,
+            pos=((left + right) * 0.5, top - 0.065),
+            scale=0.045,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+        )
+        drag_right = right - 0.12 if close_command is not None else right
         self.title_bar = DirectButton(
             parent=self.root,
-            text=title,
-            scale=0.045,
-            pos=((left + right) * 0.5, 0, top - 0.055),
-            frameColor=(0.22, 0.22, 0.22, 1),
-            frameSize=(left + 0.02 - (left + right) * 0.5, right - 0.1 - (left + right) * 0.5, title_bottom - (top - 0.055), top - (top - 0.055)),
-            text_fg=(1, 1, 1, 1),
+            frameColor=(0, 0, 0, 0),
+            frameSize=(left, drag_right, title_bottom, top),
+            pos=(0, 0, 0),
             relief=DGG.FLAT,
             pressEffect=False,
             command=self._noop,

@@ -4,7 +4,7 @@ import math
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
-from panda3d.bullet import BulletWorld
+from panda3d.bullet import BulletWorld, BulletDebugNode
 from panda3d.core import (
     AmbientLight,
     DirectionalLight,
@@ -30,11 +30,13 @@ RESPAWN_DELAY = 3.0
 COMBAT_TICK = 0.2
 TAB_TARGET_RANGE = 96.0
 TAB_TARGET_MIN_DOT = 0.45
+PLAYER_TEST_DROP_HEIGHT = 14.0
 
 
 class Game(ShowBase):
     def __init__(self):
         super().__init__()
+        world_seed = 42
 
         props = WindowProperties()
         props.setTitle("ARPG Prototype")
@@ -46,21 +48,28 @@ class Game(ShowBase):
         self._was_player_dead = False
         self._selected_target = None
         self._combat_tick_accum = 0.0
+        self._spawn_point = Vec3(0, 0, PLAYER_TEST_DROP_HEIGHT)
+        self._collision_debug_enabled = False
+        self._collision_debug_np = None
 
         self.bullet_world = BulletWorld()
         self.bullet_world.setGravity(Vec3(0, 0, -25))
+        self._setup_collision_debug()
 
         self.inventory = Inventory(size=28)
         self.inventory.add_item("gold", 1000)
         self.skills = Skills()
-        self.world = World(self.render, self.bullet_world)
+        self.world = World(self.render, self.bullet_world, seed=world_seed)
         self._setup_lighting()
-        self.player = Player(self.render, self.bullet_world, self.inventory)
+        self.player = Player(self.render, self.bullet_world, self.inventory, terrain=self.world.terrain)
         self.cam_controller = CameraController(self.cam, self.player)
         self.hud = HUD(self.inventory, self.skills)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
 
-        self.resources, self.hostiles = generate_world(self.render, self.bullet_world, seed=42)
+        self.resources, self.hostiles = generate_world(self.render, self.bullet_world, self.world.terrain, seed=world_seed)
+        self.world.refresh_terrain()
+        self._spawn_point = self._get_spawn_point()
+        self.player.respawn((self._spawn_point.x, self._spawn_point.y, self._spawn_point.z))
         self.bank = Bank(self.render, self.bullet_world, (20, 0, 0), self.inventory)
         self.vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory)
 
@@ -74,6 +83,7 @@ class Game(ShowBase):
         self.accept("tab", self._on_tab_target)
         self.accept("1", self._on_melee_ability)
         self.accept("2", self._on_ranged_ability)
+        self.accept("f3", self._toggle_collision_debug)
 
         self.taskMgr.add(self.update, "game_update")
 
@@ -89,6 +99,31 @@ class Game(ShowBase):
 
         self.render.setLight(ambient_np)
         self.render.setLight(sun_np)
+
+    def _setup_collision_debug(self):
+        debug_node = BulletDebugNode("bullet_debug")
+        debug_node.showWireframe(True)
+        debug_node.showConstraints(True)
+        debug_node.showBoundingBoxes(False)
+        debug_node.showNormals(False)
+        self._collision_debug_np = self.render.attachNewNode(debug_node)
+        self._collision_debug_np.hide()
+        self.bullet_world.setDebugNode(debug_node)
+
+    def _toggle_collision_debug(self):
+        self._collision_debug_enabled = not self._collision_debug_enabled
+        if self._collision_debug_enabled:
+            self._collision_debug_np.show()
+            if hasattr(self, "hud"):
+                self.hud.show_prompt("Collision debug: ON")
+        else:
+            self._collision_debug_np.hide()
+            if hasattr(self, "hud"):
+                self.hud.show_prompt("Collision debug: OFF")
+
+    def _get_spawn_point(self):
+        ground_z = self.world.terrain.height_at(0, 0)
+        return Vec3(0, 0, ground_z + PLAYER_TEST_DROP_HEIGHT)
 
     def _any_ui_open(self):
         return self.bank.ui_open or self.vendor.ui_open or self.hud.is_any_window_open() or self._paused
@@ -356,7 +391,7 @@ class Game(ShowBase):
             self.hud.show_death(self._respawn_timer)
             self.hud.show_prompt("You are dead")
             if self._respawn_timer <= 0.0:
-                self.player.respawn((0, 0, 0))
+                self.player.respawn((self._spawn_point.x, self._spawn_point.y, self._spawn_point.z))
                 self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
                 self.hud.clear_death()
                 self.hud.clear_prompt_if("You are dead")

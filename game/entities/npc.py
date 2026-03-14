@@ -27,6 +27,7 @@ HEAD_RADIUS = 0.48
 TORSO_SIZE = (0.34, 0.34, 1.32)
 ARM_SIZE = (0.18, 0.18, 1.12)
 LEG_SIZE = (0.2, 0.2, 1.58)
+CHARACTER_FOOT_Z = 0.42
 TUNIC_BASE = 0.62
 TUNIC_BOTTOM_Z = 2.02
 TUNIC_HEAD_GAP = 0.08
@@ -87,6 +88,7 @@ def attach_billboard_label(parent, text, pos, scale, color, shadow=(0, 0, 0, 0.8
 def build_character_model(parent, skin_color, tunic_color=DEFAULT_TUNIC_COLOR,
                           arrow_color=DEFAULT_ARROW_COLOR):
     root = parent.attachNewNode("character_actor")
+    root.setZ(-CHARACTER_FOOT_Z)
     tunic_top_z = HEAD_Z - HEAD_RADIUS - TUNIC_HEAD_GAP
     tunic_height = tunic_top_z - TUNIC_BOTTOM_Z
 
@@ -112,10 +114,10 @@ def build_character_model(parent, skin_color, tunic_color=DEFAULT_TUNIC_COLOR,
     arrow_shaft.setPos(0, 0.41, 0)
     arrow_left = arrow_root.attachNewNode(make_box_geom(*ARROW_HEAD_SIZE, (*arrow_color, 1.0)))
     arrow_left.setPos(-0.1, 0.74, 0)
-    arrow_left.setH(40)
+    arrow_left.setH(-40)
     arrow_right = arrow_root.attachNewNode(make_box_geom(*ARROW_HEAD_SIZE, (*arrow_color, 1.0)))
     arrow_right.setPos(0.1, 0.74, 0)
-    arrow_right.setH(-40)
+    arrow_right.setH(40)
 
     l_arm = root.attachNewNode("l_arm_pivot")
     l_arm.setPos(0, 0, 3.2)

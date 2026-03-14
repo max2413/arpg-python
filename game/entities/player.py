@@ -3,9 +3,20 @@ player.py — Stick figure geometry, BulletCharacterController, WASD movement.
 """
 
 import math
-from panda3d.core import Vec3, BitMask32, KeyboardButton
+from panda3d.core import (
+    Geom,
+    GeomNode,
+    GeomTriangles,
+    GeomVertexData,
+    GeomVertexFormat,
+    GeomVertexWriter,
+    TransparencyAttrib,
+    Vec3,
+    BitMask32,
+    KeyboardButton,
+)
 from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, ZUp
-from game.entities.npc import build_character_model
+from game.entities.npc import CHARACTER_FOOT_Z, build_character_model
 from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile
 
 
@@ -15,6 +26,8 @@ JUMP_SPEED   = 12.0
 TURN_SPEED   = 180.0
 SPRINT_TURN_MULT = 1.6
 BACKPEDAL_MULT = 0.75
+PLAYER_CAPSULE_RADIUS = 0.5
+PLAYER_CAPSULE_HEIGHT = 3.0
 MAX_HEALTH   = 100
 HEALTH_REGEN_DELAY = 6.0
 HEALTH_REGEN_RATE  = 4.0
@@ -38,13 +51,54 @@ MELEE_ABILITY_RANGE = 3.1
 RANGED_ABILITY_RANGE = 54.0
 MELEE_ABILITY_DAMAGE = 18
 RANGED_ABILITY_DAMAGE = 14
+# The shared character model is already grounded at its feet; the player-only
+# controller still needs a slightly deeper visual offset to line the feet up
+# with the Bullet character capsule in practice.
+PLAYER_VISUAL_OFFSET_Z = -(PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS) - 0.5
+GROUND_MARKER_OUTER = (0.02, 0.02, 0.02, 0.42)
+GROUND_MARKER_INNER = (0.92, 0.36, 0.12, 0.18)
+
+
+def _make_ground_marker(outer_rx=0.72, outer_ry=0.46, inner_rx=0.48, inner_ry=0.28, segments=24):
+    fmt = GeomVertexFormat.getV3n3c4()
+    vdata = GeomVertexData("player_ground_marker", fmt, Geom.UHStatic)
+    vdata.setNumRows(segments * 4)
+
+    vertex = GeomVertexWriter(vdata, "vertex")
+    normal = GeomVertexWriter(vdata, "normal")
+    color_w = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+
+    for i in range(segments):
+        a0 = math.radians((i / segments) * 360.0)
+        a1 = math.radians(((i + 1) / segments) * 360.0)
+        ring = [
+            (math.cos(a0) * outer_rx, math.sin(a0) * outer_ry, 0.0, GROUND_MARKER_OUTER),
+            (math.cos(a1) * outer_rx, math.sin(a1) * outer_ry, 0.0, GROUND_MARKER_OUTER),
+            (math.cos(a1) * inner_rx, math.sin(a1) * inner_ry, 0.0, GROUND_MARKER_INNER),
+            (math.cos(a0) * inner_rx, math.sin(a0) * inner_ry, 0.0, GROUND_MARKER_INNER),
+        ]
+        base = i * 4
+        for x, y, z, color in ring:
+            vertex.addData3(x, y, z)
+            normal.addData3(0, 0, 1)
+            color_w.addData4(*color)
+        tris.addVertices(base, base + 1, base + 2)
+        tris.addVertices(base, base + 2, base + 3)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("player_ground_marker")
+    node.addGeom(geom)
+    return node
 
 
 class Player:
-    def __init__(self, render, bullet_world, inventory):
+    def __init__(self, render, bullet_world, inventory, terrain=None):
         self.render = render
         self.bullet_world = bullet_world
         self.inventory = inventory
+        self.terrain = terrain
 
         # Visual
         (self.figure,
@@ -55,15 +109,21 @@ class Player:
             tunic_color=(0.68, 0.24, 0.12, 1.0),
         )
         self.figure.reparentTo(render)
+        self._ground_marker = self.figure.attachNewNode(_make_ground_marker())
+        self._ground_marker.setPos(0, 0, 0.04)
+        self._ground_marker.setTransparency(TransparencyAttrib.MAlpha)
+        self._ground_marker.setLightOff()
+        self._ground_marker.setDepthWrite(False)
+        self._ground_marker.setBin("fixed", 13)
 
         # Animation state
         self._walk_t = 0.0
 
         # Physics — capsule covers the stick figure height (~4 units)
-        shape = BulletCapsuleShape(0.5, 3.0, ZUp)
+        shape = BulletCapsuleShape(PLAYER_CAPSULE_RADIUS, PLAYER_CAPSULE_HEIGHT, ZUp)
         self.char_node = BulletCharacterControllerNode(shape, 0.4, "player")
         self.char_np = render.attachNewNode(self.char_node)
-        self.char_np.setPos(0, 0, 0)
+        self.char_np.setPos(0, 0, PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + 1.0)
         self.char_np.setCollideMask(BitMask32.allOn())
         bullet_world.attachCharacter(self.char_node)
 
@@ -137,14 +197,14 @@ class Player:
         self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
         self.char_np.setH(0)
         self.figure.setColorScale(1, 1, 1, 1)
-        self.figure.setPos(pos[0], pos[1], pos[2] - 2.0)
+        self.figure.setPos(pos[0], pos[1], pos[2] + PLAYER_VISUAL_OFFSET_Z)
         self.figure.setH(0)
 
     def update(self, dt):
         if self.dead:
             self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
             pos = self.char_np.getPos()
-            self.figure.setPos(pos.x, pos.y, pos.z - 2.0)
+            self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
             self.figure.setH(self.char_np.getH())
             self.figure.setColorScale(0.45, 0.2, 0.2, 1)
             self._animate(dt, False, False)
@@ -202,13 +262,13 @@ class Player:
 
         # Sync visual to physics.
         pos = self.char_np.getPos()
-        self.figure.setPos(pos.x, pos.y, pos.z - 2.0)
+        self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
         self.figure.setH(self.char_np.getH())
         self.figure.setColorScale(1, 1, 1, 1)
 
     def get_pos(self):
         pos = self.char_np.getPos()
-        return Vec3(pos.x, pos.y, pos.z - 2.0)
+        return Vec3(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
 
     def get_health_display(self):
         return int(math.ceil(self.health))

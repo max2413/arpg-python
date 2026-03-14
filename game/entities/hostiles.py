@@ -6,6 +6,7 @@ import math
 import random
 
 from panda3d.core import Vec3, NodePath, TextNode, BillboardEffect, LineSegs
+from panda3d.bullet import BulletGhostNode, BulletSphereShape
 
 from game.entities.npc import build_character_model
 from game.systems.combat import (
@@ -62,8 +63,10 @@ SPITTER_RANGED_PROFILE = make_combat_profile(
 
 
 class Follower:
-    def __init__(self, render, pos, patrol_center=None):
+    def __init__(self, render, pos, patrol_center=None, terrain=None, bullet_world=None):
         self.render = render
+        self.terrain = terrain
+        self.bullet_world = bullet_world
         self.pos = Vec3(*pos)
         self.patrol_center = Vec3(*(patrol_center or pos))
         self._rng = random.Random(f"{self.patrol_center.x:.2f},{self.patrol_center.y:.2f}")
@@ -95,6 +98,7 @@ class Follower:
 
         self._build_npc()
         self._build_target_arrow()
+        self._build_debug_ghost()
 
     def _build_npc(self):
         (_, self._l_leg, self._r_leg, self._l_arm, self._r_arm) = build_character_model(
@@ -144,6 +148,18 @@ class Follower:
         self._target_arrow_np.setPos(0, 0, 5.25)
         self._target_arrow_np.setEffect(BillboardEffect.makePointEye())
         self._target_arrow_np.hide()
+
+    def _build_debug_ghost(self):
+        self._ghost_np = None
+        self._ghost = None
+        if self.bullet_world is None:
+            return
+        ghost = BulletGhostNode("hostile_debug_ghost")
+        ghost.addShape(BulletSphereShape(1.0))
+        self._ghost = ghost
+        self._ghost_np = self.render.attachNewNode(ghost)
+        self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.2)
+        self.bullet_world.attachGhost(ghost)
 
     def update(self, dt, player, hud):
         player_pos = player.get_pos()
@@ -203,7 +219,7 @@ class Follower:
             self._animate(dt, False)
             return
 
-        patrol_target = Vec3(self._patrol_target.x, self._patrol_target.y, self.pos.z)
+        patrol_target = self._ground_point(self._patrol_target.x, self._patrol_target.y)
         if (patrol_target - self.pos).length() <= PATROL_POINT_TOLERANCE:
             self._wait_timer = self._rng.uniform(PATROL_WAIT_MIN, PATROL_WAIT_MAX)
             self._patrol_target = self._pick_patrol_target()
@@ -224,11 +240,20 @@ class Follower:
     def _pick_patrol_target(self):
         angle = self._rng.uniform(0, 2 * math.pi)
         radius = self._rng.uniform(4.0, PATROL_RADIUS)
-        return Vec3(
-            self.patrol_center.x + math.cos(angle) * radius,
-            self.patrol_center.y + math.sin(angle) * radius,
-            self.patrol_center.z,
-        )
+        x = self.patrol_center.x + math.cos(angle) * radius
+        y = self.patrol_center.y + math.sin(angle) * radius
+        return self._ground_point(x, y)
+
+    def _ground_point(self, x, y):
+        z = self.terrain.height_at(x, y) if self.terrain is not None else self.patrol_center.z
+        return Vec3(x, y, z)
+
+    def reground(self):
+        self.pos = self._ground_point(self.pos.x, self.pos.y)
+        self.patrol_center = self._ground_point(self.patrol_center.x, self.patrol_center.y)
+        self.root.setPos(self.pos)
+        if self._ghost_np is not None and not self._ghost_np.isEmpty():
+            self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.2)
 
     def _move_toward(self, target, speed, dt, stop_distance):
         to_target = target - self.pos
@@ -238,8 +263,13 @@ class Follower:
 
         to_target.normalize()
         step = min(distance - stop_distance, speed * dt)
-        self.pos += to_target * step
+        next_pos = self.pos + to_target * step
+        if self.terrain is not None:
+            next_pos.z = self.terrain.height_at(next_pos.x, next_pos.y)
+        self.pos = next_pos
         self.root.setPos(self.pos)
+        if self._ghost_np is not None and not self._ghost_np.isEmpty():
+            self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.2)
 
         desired_heading = math.degrees(math.atan2(-to_target.x, to_target.y))
         current_heading = self.root.getH()
@@ -262,7 +292,7 @@ class Follower:
             self._animate(dt, False)
             return
 
-        chase_target = Vec3(target_point.x, target_point.y, self.pos.z)
+        chase_target = self._ground_point(target_point.x, target_point.y)
         self._move_toward(chase_target, CHASE_SPEED, dt, stop_distance=stop_distance_for(profile))
         self._animate(dt, True)
 
@@ -278,7 +308,7 @@ class Follower:
 
     def _update_reset(self, dt):
         self.health = min(self.max_health, self.health + RESET_REGEN_RATE * dt)
-        self._move_toward(self.patrol_center, PATROL_SPEED, dt, stop_distance=0.0)
+        self._move_toward(self._ground_point(self.patrol_center.x, self.patrol_center.y), PATROL_SPEED, dt, stop_distance=0.0)
         if (self.patrol_center - self.pos).length() <= PATROL_POINT_TOLERANCE:
             self.health = self.max_health
             self._state = "patrol"
@@ -424,8 +454,10 @@ class Follower:
     def _respawn(self):
         self.dead = False
         self.health = self.max_health
-        self.pos = Vec3(self.patrol_center)
+        self.pos = self._ground_point(self.patrol_center.x, self.patrol_center.y)
         self.root.setPos(self.pos)
+        if self._ghost_np is not None and not self._ghost_np.isEmpty():
+            self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.2)
         self.root.setH(0)
         self.root.setP(0)
         self.root.setColorScale(1, 1, 1, 1)
@@ -444,6 +476,10 @@ class Follower:
     def remove_from_world(self, hud=None):
         self._clear_prompt(hud)
         self._clear_projectiles()
+        if self._ghost_np is not None and not self._ghost_np.isEmpty():
+            self.bullet_world.removeGhost(self._ghost)
+            self._ghost_np.removeNode()
+            self._ghost_np = None
         self.root.hide()
 
     def set_targeted(self, targeted):
