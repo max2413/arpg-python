@@ -39,32 +39,18 @@ def make_box_geom(sx, sy, sz, color):
     fmt = GeomVertexFormat.getV3n3c4()
     vdata = GeomVertexData("box", fmt, Geom.UHStatic)
 
-    # 6 faces × 4 vertices each
-    vertices = []
-    normals_list = []
-
     hx, hy, hz = sx / 2, sy / 2, sz / 2
 
-    faces = [
-        # (four corners, normal)
-        ([(-hx, -hy, -hz), (hx, -hy, -hz), (hx, hy, -hz), (-hx, hy, -hz)], (0, 0, -1)),
-        ([(-hx, -hy,  hz), (hx, -hy,  hz), (hx, hy,  hz), (-hx, hy,  hz)], (0, 0,  1)),
-        ([(-hx, -hy, -hz), (-hx, -hy, hz), (hx, -hy, hz), (hx, -hy, -hz)], (0, -1, 0)),
-        ([(-hx,  hy, -hz), (-hx,  hy, hz), (hx,  hy, hz), (hx,  hy, -hz)], (0,  1, 0)),
-        ([(-hx, -hy, -hz), (-hx,  hy, -hz), (-hx, hy, hz), (-hx, -hy, hz)], (-1, 0, 0)),
-        [( hx, -hy, -hz), ( hx,  hy, -hz), ( hx, hy, hz), ( hx, -hy, hz)],
-    ]
-    normals_list_fix = [
-        (0, 0, -1), (0, 0, 1), (0, -1, 0), (0, 1, 0), (-1, 0, 0), (1, 0, 0)
-    ]
-
     face_verts = [
-        [(-hx, -hy, -hz), (hx, -hy, -hz), (hx, hy, -hz), (-hx, hy, -hz)],
-        [(-hx, -hy,  hz), (hx, -hy,  hz), (hx, hy,  hz), (-hx, hy,  hz)],
-        [(-hx, -hy, -hz), (-hx, -hy, hz), (hx, -hy, hz), (hx, -hy, -hz)],
-        [(-hx,  hy, -hz), (-hx,  hy, hz), (hx,  hy, hz), (hx,  hy, -hz)],
-        [(-hx, -hy, -hz), (-hx,  hy, -hz), (-hx, hy, hz), (-hx, -hy, hz)],
-        [( hx, -hy, -hz), ( hx,  hy, -hz), ( hx, hy, hz), ( hx, -hy, hz)],
+        [(-hx, -hy, -hz), (-hx,  hy, -hz), ( hx,  hy, -hz), ( hx, -hy, -hz)],  # bottom
+        [(-hx, -hy,  hz), ( hx, -hy,  hz), ( hx,  hy,  hz), (-hx,  hy,  hz)],  # top
+        [(-hx, -hy, -hz), ( hx, -hy, -hz), ( hx, -hy,  hz), (-hx, -hy,  hz)],  # back
+        [(-hx,  hy, -hz), (-hx,  hy,  hz), ( hx,  hy,  hz), ( hx,  hy, -hz)],  # front
+        [(-hx, -hy, -hz), (-hx, -hy,  hz), (-hx,  hy,  hz), (-hx,  hy, -hz)],  # left
+        [( hx, -hy, -hz), ( hx,  hy, -hz), ( hx,  hy,  hz), ( hx, -hy,  hz)],  # right
+    ]
+    normals_list = [
+        (0, 0, -1), (0, 0, 1), (0, -1, 0), (0, 1, 0), (-1, 0, 0), (1, 0, 0)
     ]
 
     vdata.setNumRows(24)
@@ -74,7 +60,7 @@ def make_box_geom(sx, sy, sz, color):
 
     tris = GeomTriangles(Geom.UHStatic)
 
-    for face_i, (face, nrm) in enumerate(zip(face_verts, normals_list_fix)):
+    for face_i, (face, nrm) in enumerate(zip(face_verts, normals_list)):
         base = face_i * 4
         for v in face:
             vertex.addData3(*v)

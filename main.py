@@ -4,7 +4,7 @@ main.py — Entry point, ShowBase, Bullet physics world, game loop.
 
 from direct.showbase.ShowBase import ShowBase
 from panda3d.bullet import BulletWorld
-from panda3d.core import Vec3, WindowProperties, TextNode
+from panda3d.core import Vec3, WindowProperties, TextNode, Point2, Point3
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
 
 from world import World
@@ -15,6 +15,8 @@ from hud import HUD
 from bank import Bank
 from vendor import Vendor
 from worldgen import generate_world
+
+RESPAWN_DELAY = 3.0
 
 
 class Game(ShowBase):
@@ -27,6 +29,9 @@ class Game(ShowBase):
 
         self._paused = False
         self._pause_ui = None
+        self._respawn_timer = 0.0
+        self._was_player_dead = False
+        self._selected_target = None
 
         # --- Physics ---
         self.bullet_world = BulletWorld()
@@ -46,9 +51,10 @@ class Game(ShowBase):
 
         # --- HUD ---
         self.hud = HUD(self.inventory)
+        self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
 
         # --- Resources (procedurally generated) ---
-        self.resources = generate_world(self.render, self.bullet_world, seed=42)
+        self.resources, self.hostiles = generate_world(self.render, self.bullet_world, seed=42)
 
         # --- Bank ---
         self.bank = Bank(self.render, self.bullet_world, (20, 0, 0), self.inventory)
@@ -62,6 +68,9 @@ class Game(ShowBase):
         self.accept("escape", self._on_escape)
         self.accept("e", self._on_e_pressed)
         self.accept("e-up", self._on_e_released)
+        self.accept("mouse1", self._on_mouse1)
+        self.accept("1", self._on_melee_ability)
+        self.accept("2", self._on_ranged_ability)
 
         # --- Game loop task ---
         self.taskMgr.add(self.update, "game_update")
@@ -136,7 +145,7 @@ class Game(ShowBase):
     # ------------------------------------------------------------------
 
     def _on_e_pressed(self):
-        if self._paused:
+        if self._paused or self.player.dead:
             return
         if self.bank.ui_open:
             self.bank.close_ui()
@@ -152,10 +161,20 @@ class Game(ShowBase):
         if self.vendor._in_range:
             self._open_ui(self.vendor)
             return
+        for hostile in self.hostiles:
+            if hostile.try_player_interact(self.player, self.inventory, self.hud):
+                return
         for res in self.resources:
             res._on_e_pressed()
 
+    def _on_mouse1(self):
+        if self._paused or self.player.dead or self._any_ui_open():
+            return
+        self._pick_target()
+
     def _on_e_released(self):
+        if self.player.dead:
+            return
         for res in self.resources:
             res._on_e_released()
 
@@ -173,6 +192,82 @@ class Game(ShowBase):
             return
         self._open_pause()
 
+    def _on_melee_ability(self):
+        self._use_targeted_ability(
+            self.player.melee_ability_range,
+            self.player.melee_ability_damage,
+            "Target too far for melee",
+            projectile=False,
+        )
+
+    def _on_ranged_ability(self):
+        self._use_targeted_ability(
+            self.player.ranged_ability_range,
+            self.player.ranged_ability_damage,
+            "Target too far for ranged",
+            projectile=True,
+        )
+
+    def _use_targeted_ability(self, max_range, damage, fail_msg, projectile):
+        if self._paused or self.player.dead:
+            return
+        target = self._selected_target
+        if target is None or not target.is_targetable():
+            self.hud.show_prompt("No target selected")
+            return
+
+        distance = self.player.distance_to(target.get_target_point())
+        if distance > max_range:
+            self.hud.show_prompt(fail_msg)
+            return
+
+        self.player.face_target(target.get_target_point())
+        if projectile:
+            self.player.fire_target_projectile(target, damage)
+        else:
+            target.take_damage(damage, self.hud)
+
+    def _set_selected_target(self, hostile):
+        if self._selected_target is hostile:
+            return
+        if self._selected_target is not None:
+            self._selected_target.set_targeted(False)
+        self._selected_target = hostile
+        if self._selected_target is not None:
+            self._selected_target.set_targeted(True)
+            self.hud.show_prompt(f"Targeted {self._selected_target.get_target_name()}")
+        else:
+            self.hud.clear_target()
+
+    def _pick_target(self):
+        if not self.mouseWatcherNode.hasMouse():
+            return
+
+        mouse = self.mouseWatcherNode.getMouse()
+        best = None
+        best_score = None
+        screen_pt = Point2()
+
+        for hostile in self.hostiles:
+            if not hostile.is_targetable():
+                continue
+            world_pt = hostile.get_target_point()
+            camera_pt = self.cam.getRelativePoint(self.render, Point3(world_pt.x, world_pt.y, world_pt.z))
+            if camera_pt.y <= 0:
+                continue
+            if not self.camLens.project(camera_pt, screen_pt):
+                continue
+            dx = screen_pt.x - mouse.x
+            dy = screen_pt.y - mouse.y
+            score = dx * dx + dy * dy
+            if score > 0.03:
+                continue
+            if best_score is None or score < best_score:
+                best = hostile
+                best_score = score
+
+        self._set_selected_target(best)
+
     # ------------------------------------------------------------------
     # Game loop
     # ------------------------------------------------------------------
@@ -186,16 +281,60 @@ class Game(ShowBase):
 
         self.bullet_world.doPhysics(dt)
 
-        player_pos = self.player.get_pos()
-
-        self.cam_controller.update(player_pos)
         self.player.update(dt, self.cam_controller.pivot)
+        player_pos = self.player.get_pos()
+        self.cam_controller.update(
+            dt,
+            player_pos,
+            self.player.char_np.getH(),
+            self.player.is_advancing(),
+            self.player.is_moving(),
+        )
 
         for res in self.resources:
             res.update(dt, player_pos, self.player, self.inventory, self.hud)
 
         self.bank.update(dt, player_pos, self.hud)
         self.vendor.update(dt, player_pos, self.hud)
+        for hostile in self.hostiles:
+            hostile.update(dt, self.player, self.hud)
+        self.player.update_projectiles(dt, self.hud)
+        self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
+
+        if self._selected_target is not None and not self._selected_target.is_targetable():
+            self._set_selected_target(None)
+        elif self._selected_target is not None:
+            distance = self.player.distance_to(self._selected_target.get_target_point())
+            self.hud.refresh_target(
+                self._selected_target.get_target_name(),
+                self._selected_target.health,
+                self._selected_target.max_health,
+            )
+            self.hud.refresh_range_indicators(
+                distance <= self.player.melee_ability_range,
+                distance <= self.player.ranged_ability_range,
+            )
+        else:
+            self.hud.clear_target()
+            self.hud.clear_range_indicators()
+
+        if self.player.dead:
+            if not self._was_player_dead:
+                self._respawn_timer = RESPAWN_DELAY
+                self._was_player_dead = True
+            self._respawn_timer = max(0.0, self._respawn_timer - dt)
+            self.hud.show_death(self._respawn_timer)
+            self.hud.show_prompt("You are dead")
+            if self._respawn_timer <= 0.0:
+                self.player.respawn((0, 0, 0))
+                self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
+                self.hud.clear_death()
+                self.hud.clear_prompt_if("You are dead")
+                self._was_player_dead = False
+        else:
+            self._respawn_timer = 0.0
+            self._was_player_dead = False
+            self.hud.clear_death()
 
         # If bank/vendor closed themselves via their X button, restore camera
         self._sync_camera_ui_state()

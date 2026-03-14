@@ -1,5 +1,5 @@
 """
-camera.py — Third-person orbit camera with mouse look.
+camera.py — Third-person follow camera with optional right-click free look.
 """
 
 import builtins
@@ -11,6 +11,7 @@ PITCH_MAX = 70.0
 MOUSE_SENSITIVITY = 0.2   # degrees per pixel
 CAM_DISTANCE = 15.0
 CAM_HEIGHT = 5.0
+CAM_FOLLOW_SPEED = 16.0
 
 
 class CameraController:
@@ -18,9 +19,12 @@ class CameraController:
         self.cam = cam
         self.player = player
         self._ui_open = False
+        self._free_look = False
 
         app = builtins.base
         app.disableMouse()
+        app.accept("mouse3", self._set_free_look, [True])
+        app.accept("mouse3-up", self._set_free_look, [False])
 
         # Pivot sits at player position; camera is a child of pivot
         self.pivot = NodePath("cam_pivot")
@@ -37,30 +41,19 @@ class CameraController:
         self._win = app.win
         self._mouse_watcher = app.mouseWatcherNode
 
-        # Track last pixel position for delta
-        props = self._win.getProperties()
-        self._cx = props.getXSize() // 2
-        self._cy = props.getYSize() // 2
-        self._win.movePointer(0, self._cx, self._cy)
-        self._last_x = self._cx
-        self._last_y = self._cy
         self._skip_frame = False
+        self._set_cursor_hidden(False)
 
     def set_ui_open(self, open_state):
         """Call with True when any UI opens, False when it closes."""
         if open_state == self._ui_open:
             return  # no change — don't re-trigger recenter/skip
         self._ui_open = open_state
-        props = WindowProperties()
         if open_state:
-            props.setCursorHidden(False)
-            self._win.requestProperties(props)
+            self._set_cursor_hidden(False)
+            self._free_look = False
         else:
-            props.setCursorHidden(True)
-            self._win.requestProperties(props)
-            # Re-center and skip one frame so the large delta isn't applied
-            self._recenter()
-            self._skip_frame = True
+            self._set_cursor_hidden(False)
 
     def _recenter(self):
         props = self._win.getProperties()
@@ -68,26 +61,46 @@ class CameraController:
         cy = props.getYSize() // 2
         self._win.movePointer(0, cx, cy)
 
-    def update(self, player_pos):
+    def _set_cursor_hidden(self, hidden):
+        props = WindowProperties()
+        props.setCursorHidden(hidden)
+        self._win.requestProperties(props)
+
+    def _set_free_look(self, enabled):
+        if self._ui_open:
+            self._free_look = False
+            self._set_cursor_hidden(False)
+            return
+        self._free_look = enabled
+        self._set_cursor_hidden(enabled)
+        if enabled:
+            self._recenter()
+            self._skip_frame = True
+
+    def update(self, dt, player_pos, player_heading, player_advancing, player_moving):
         if not self._ui_open:
-            if self._skip_frame:
-                # Skip one frame after UI close to discard the large re-center delta
-                self._skip_frame = False
-                self._recenter()
-            elif self._mouse_watcher.hasMouse():
-                props = self._win.getProperties()
-                cx = props.getXSize() // 2
-                cy = props.getYSize() // 2
+            if player_advancing:
+                self._heading = player_heading
+            elif player_moving:
+                self._heading = self._approach_angle(self._heading, player_heading, CAM_FOLLOW_SPEED * dt)
+            elif self._free_look and self._mouse_watcher.hasMouse():
+                if self._skip_frame:
+                    self._skip_frame = False
+                    self._recenter()
+                else:
+                    props = self._win.getProperties()
+                    cx = props.getXSize() // 2
+                    cy = props.getYSize() // 2
 
-                ptr = self._win.getPointer(0)
-                dx = ptr.getX() - cx
-                dy = ptr.getY() - cy
+                    ptr = self._win.getPointer(0)
+                    dx = ptr.getX() - cx
+                    dy = ptr.getY() - cy
 
-                self._heading -= dx * MOUSE_SENSITIVITY
-                self._pitch -= dy * MOUSE_SENSITIVITY
-                self._pitch = max(PITCH_MIN, min(PITCH_MAX, self._pitch))
+                    self._heading -= dx * MOUSE_SENSITIVITY
+                    self._pitch -= dy * MOUSE_SENSITIVITY
+                    self._pitch = max(PITCH_MIN, min(PITCH_MAX, self._pitch))
 
-                self._recenter()
+                    self._recenter()
 
         # Apply to pivot
         self.pivot.setPos(player_pos.x, player_pos.y, player_pos.z + 2)
@@ -95,3 +108,8 @@ class CameraController:
 
     def get_heading(self):
         return self._heading
+
+    def _approach_angle(self, current, target, step):
+        delta = (target - current + 180.0) % 360.0 - 180.0
+        delta = max(-step, min(step, delta))
+        return current + delta

@@ -2,6 +2,8 @@
 hud.py — All DirectGUI: inventory grid, skill bars, context prompts.
 """
 
+import math
+
 from direct.gui.DirectGui import (
     DirectFrame, DirectButton, OnscreenText
 )
@@ -21,6 +23,8 @@ SKILL_PANEL_X = -1.3
 SKILL_PANEL_Y = -0.4
 BAR_WIDTH = 0.3
 BAR_HEIGHT = 0.04
+HUD_BUTTON_X = -1.08
+HUD_BUTTON_Y = 0.02
 
 
 class HUD:
@@ -28,13 +32,26 @@ class HUD:
         self.inventory = inventory
         self._prompt_text = None
         self._prompt_msg = ""
-        self._inv_visible = True
-        self._skill_visible = True
+        self._inv_visible = False
+        self._skill_visible = False
         self._tooltip = None
         self._slot_buttons = []
         self._skill_bars = {}  # skill -> (bg_frame, fill_frame, label)
+        self._health_fill = None
+        self._health_label = None
+        self._death_text = None
+        self._target_panel = None
+        self._target_fill = None
+        self._target_name = None
+        self._target_health = None
+        self._melee_indicator = None
+        self._range_indicator = None
 
         self._build_prompt()
+        self._build_health_panel()
+        self._build_target_panel()
+        self._build_range_indicators()
+        self._build_menu_buttons()
         self._build_inventory_panel()
         self._build_skill_panel()
 
@@ -65,6 +82,181 @@ class HUD:
     def clear_prompt(self):
         self._prompt_msg = ""
         self._prompt_text.setText("")
+
+    # ------------------------------------------------------------------
+    # Health panel
+    # ------------------------------------------------------------------
+
+    def _build_health_panel(self):
+        self._health_panel = DirectFrame(
+            frameColor=(0.15, 0.15, 0.15, 0.9),
+            frameSize=(0, 0.42, -0.1, 0.06),
+            pos=(-1.18, 0, 0.9),
+        )
+        self._health_label = OnscreenText(
+            text="HP 100/100",
+            parent=self._health_panel,
+            pos=(0.21, -0.01),
+            scale=0.04,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        DirectFrame(
+            parent=self._health_panel,
+            frameColor=(0.1, 0.1, 0.1, 1),
+            frameSize=(0.02, 0.4, -0.08, -0.04),
+            pos=(0, 0, 0),
+        )
+        self._health_fill = DirectFrame(
+            parent=self._health_panel,
+            frameColor=(0.8, 0.15, 0.15, 1),
+            frameSize=(0.02, 0.4, -0.08, -0.04),
+            pos=(0, 0, 0),
+        )
+        self._death_text = OnscreenText(
+            text="",
+            pos=(0, 0.1),
+            scale=0.09,
+            fg=(1, 0.3, 0.3, 1),
+            shadow=(0, 0, 0, 0.9),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+
+    def refresh_health(self, health, max_health):
+        ratio = 0.0 if max_health <= 0 else max(0.0, min(1.0, health / max_health))
+        fill_right = 0.02 + 0.38 * ratio
+        self._health_fill["frameSize"] = (0.02, max(0.02, fill_right), -0.08, -0.04)
+        shown_health = int(math.ceil(health))
+        self._health_label.setText(f"HP {shown_health}/{max_health}")
+
+    def show_death(self, respawn_time):
+        self._death_text.setText(f"You died\nRespawning in {respawn_time:.1f}s")
+
+    def clear_death(self):
+        self._death_text.setText("")
+
+    # ------------------------------------------------------------------
+    # Target panel
+    # ------------------------------------------------------------------
+
+    def _build_target_panel(self):
+        self._target_panel = DirectFrame(
+            frameColor=(0.12, 0.12, 0.12, 0.88),
+            frameSize=(-0.24, 0.24, -0.11, 0.07),
+            pos=(0, 0, 0.82),
+        )
+        self._target_name = OnscreenText(
+            text="",
+            parent=self._target_panel,
+            pos=(0, 0.015),
+            scale=0.045,
+            fg=(1, 0.88, 0.35, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        self._target_health = OnscreenText(
+            text="",
+            parent=self._target_panel,
+            pos=(0, -0.04),
+            scale=0.032,
+            fg=(0.95, 0.95, 0.95, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        DirectFrame(
+            parent=self._target_panel,
+            frameColor=(0.08, 0.08, 0.08, 1),
+            frameSize=(-0.19, 0.19, -0.095, -0.065),
+            pos=(0, 0, 0),
+        )
+        self._target_fill = DirectFrame(
+            parent=self._target_panel,
+            frameColor=(0.78, 0.18, 0.12, 1),
+            frameSize=(-0.19, 0.19, -0.095, -0.065),
+            pos=(0, 0, 0),
+        )
+        self._target_panel.hide()
+
+    def _build_range_indicators(self):
+        self._range_panel = DirectFrame(
+            frameColor=(0.08, 0.08, 0.08, 0.78),
+            frameSize=(-0.22, 0.22, -0.06, 0.06),
+            pos=(0, 0, -0.92),
+        )
+        self._melee_indicator = OnscreenText(
+            text="Melee: --",
+            parent=self._range_panel,
+            pos=(-0.11, -0.015),
+            scale=0.038,
+            fg=(0.75, 0.75, 0.75, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        self._range_indicator = OnscreenText(
+            text="Range: --",
+            parent=self._range_panel,
+            pos=(0.11, -0.015),
+            scale=0.038,
+            fg=(0.75, 0.75, 0.75, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+
+    def refresh_range_indicators(self, melee_ok, ranged_ok):
+        self._melee_indicator.setText("Melee: OK" if melee_ok else "Melee: Far")
+        self._melee_indicator["fg"] = (0.35, 0.9, 0.35, 1) if melee_ok else (0.9, 0.35, 0.35, 1)
+        self._range_indicator.setText("Range: OK" if ranged_ok else "Range: Far")
+        self._range_indicator["fg"] = (0.35, 0.9, 0.35, 1) if ranged_ok else (0.9, 0.35, 0.35, 1)
+
+    def clear_range_indicators(self):
+        self._melee_indicator.setText("Melee: --")
+        self._melee_indicator["fg"] = (0.75, 0.75, 0.75, 1)
+        self._range_indicator.setText("Range: --")
+        self._range_indicator["fg"] = (0.75, 0.75, 0.75, 1)
+
+    def refresh_target(self, name, health, max_health):
+        ratio = 0.0 if max_health <= 0 else max(0.0, min(1.0, health / max_health))
+        right = -0.19 + 0.38 * ratio
+        self._target_fill["frameSize"] = (-0.19, max(-0.19, right), -0.095, -0.065)
+        self._target_name.setText(name)
+        self._target_health.setText(f"{int(math.ceil(health))}/{max_health}")
+        self._target_panel.show()
+
+    def clear_target(self):
+        self._target_name.setText("")
+        self._target_health.setText("")
+        self._target_panel.hide()
+
+    # ------------------------------------------------------------------
+    # Menu buttons
+    # ------------------------------------------------------------------
+
+    def _build_menu_buttons(self):
+        self._menu_bar = DirectFrame(
+            frameColor=(0, 0, 0, 0),
+            frameSize=(-0.4, 0.4, -0.05, 0.05),
+            pos=(HUD_BUTTON_X, 0, HUD_BUTTON_Y),
+        )
+        DirectButton(
+            parent=self._menu_bar,
+            text="Inventory",
+            scale=0.045,
+            pos=(0, 0, 0.08),
+            command=self.toggle_inventory,
+            frameColor=(0.18, 0.18, 0.18, 0.95),
+            text_fg=(1, 1, 1, 1),
+        )
+        DirectButton(
+            parent=self._menu_bar,
+            text="Skills",
+            scale=0.045,
+            pos=(0, 0, -0.06),
+            command=self.toggle_skills,
+            frameColor=(0.18, 0.18, 0.18, 0.95),
+            text_fg=(1, 1, 1, 1),
+        )
 
     # ------------------------------------------------------------------
     # Inventory panel
@@ -120,6 +312,7 @@ class HUD:
             self._slot_buttons.append((slot_frame, item_frame, qty_label))
 
         self.refresh_inventory()
+        self._inv_panel.hide()
 
     def refresh_inventory(self):
         for i, (slot_frame, item_frame, qty_label) in enumerate(self._slot_buttons):
@@ -193,6 +386,7 @@ class HUD:
             self._skill_bars[skill] = (lbl, bar_bg, bar_fill)
 
         self.refresh_skills()
+        self._skill_panel.hide()
 
     def refresh_skills(self):
         for skill, (lbl, bar_bg, bar_fill) in self._skill_bars.items():

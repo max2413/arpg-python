@@ -1,281 +1,462 @@
-# Panda3D ARPG Prototype — Build Plan
+# Panda3D ARPG Prototype — Current Dev Plan
 
-## Overview
+## Purpose
 
-A RuneScape-inspired Python game built in Panda3D. Stick figure player, slot-based inventory and bank, resource gathering, skill progression, and an NPC vendor. No external assets — everything is built procedurally in code.
+This document replaces the original phase-by-phase bootstrap plan.
 
----
+The project is no longer at the "build the prototype from scratch" stage. The codebase now has a playable loop with movement, gathering, inventory, bank/vendor UI, hostile mobs, target selection, basic abilities, death/respawn, loot, and procedural world generation.
 
-## Tech Stack
+Use this file as:
 
-- **Python 3.11+**
-- **Panda3D** — rendering, input, GUI, tasks
-- **Panda3D Bullet** — physics, gravity, collision (bundled with Panda3D)
-- **No external assets** — all geometry is procedural
-
----
-
-## File Structure
-
-```
-project/
-├── main.py           # Entry point, ShowBase, physics world, game loop
-├── player.py         # Stick figure geometry, BulletCharacterController, WASD movement
-├── camera.py         # Third-person orbit camera, mouse look
-├── world.py          # Ground plane, static scenery, collision geometry
-├── resources.py      # Tree, Rock, FishingSpot node classes with harvest logic
-├── inventory.py      # Inventory class, item registry, skill/XP data
-├── hud.py            # All DirectGUI — inventory grid, skill bars, prompts
-├── bank.py           # Bank building, proximity trigger, bank UI
-├── vendor.py         # NPC vendor, shop stock, buy/sell UI
-└── data/
-    └── save.json     # Persisted bank contents
-```
+- a current-state snapshot for developers joining the project
+- a map of the major systems and how they interact
+- a backlog guide for the next rounds of work
+- a record of practical constraints and known rough edges
 
 ---
 
-## Item Registry
+## Current State
 
-Defined once in `inventory.py`, referenced everywhere else.
+### Implemented
 
-```python
-ITEMS = {
-    "wood": {"name": "Logs",     "stackable": True, "color": (0.4, 0.2, 0.1, 1), "value": 5},
-    "ore":  {"name": "Ore",      "stackable": True, "color": (0.5, 0.5, 0.5, 1), "value": 8},
-    "fish": {"name": "Raw Fish", "stackable": True, "color": (0.2, 0.5, 0.8, 1), "value": 6},
-    "gold": {"name": "Gold",     "stackable": True, "color": (1.0, 0.8, 0.0, 1), "value": 1},
-}
-```
+- Panda3D app bootstraps through `main.py`
+- Bullet world with gravity and character controller
+- Large procedural overworld with:
+  - forests
+  - ore patches
+  - meandering rivers
+  - fishing spots
+  - hostile mob placement
+- Procedural resource nodes:
+  - trees
+  - rocks
+  - fishing spots
+- Resource harvesting with depletion and respawn
+- Inventory with stacking items and skill XP
+- Toggleable HUD inventory and skills panels
+- Bank building with banker NPC and persistent bank storage
+- Vendor NPC with buy/sell UI
+- Procedural hostile mobs:
+  - `Scout` melee enemy
+  - `Spitter` ranged enemy
+- Hostile patrol, aggro, leash, death, loot, and respawn
+- Player health, natural regen, death, and respawn
+- Click targeting for hostiles
+- Two targeted abilities:
+  - `1` melee
+  - `2` ranged projectile
+- Target HUD with target health and debug target arrow
+- Camera with follow behavior and right-click free look
 
----
+### Partially Implemented / Rough
 
-## Inventory System
+- Movement and camera feel are still being tuned
+- Combat is functional but still prototype-grade
+- No formal questing, equipment, stats, or spell system
+- No save/load for player inventory, skills, or world state
+- No authored world regions, only procedural scatter
+- Hostile AI is intentionally simple
+- UI layout is functional but not yet cohesive
 
-### Data Model
+### Not Yet Implemented
 
-```python
-class Inventory:
-    def __init__(self, size=28):
-        self.slots = [None] * size  # None or {"id": str, "quantity": int}
-```
-
-### Key Methods
-
-| Method | Description |
-|---|---|
-| `add_item(item_id, qty)` | Stack if stackable, else fill first free slot. Returns False if full. |
-| `remove_item(item_id, qty)` | Decrement quantity, clear slot if 0. |
-| `move_slot(a, b)` | Swap contents of two slots. |
-| `get_free_slots()` | Count of None slots. |
-| `to_dict()` / `from_dict()` | Serialization for save.json. |
-
-### Sizes
-
-- **Player inventory** — 28 slots (4 wide × 7 tall)
-- **Bank** — 80 slots (8 wide × 10 tall)
-
----
-
-## Phase 1 — Foundation
-
-**Files:** `main.py`, `world.py`, `player.py`
-
-**Goals:**
-- Panda3D window running with a Bullet physics world and gravity set
-- Flat ground plane with a Bullet collision shape
-- Stick figure player built from `LineSegs` (head, body, arms, legs)
-- `BulletCharacterControllerNode` attached for gravity and slope handling
-- WASD moves the player, Space jumps
-- Player does not fall through the floor
-
-**Stick Figure Construction (`player.py`):**
-- Head: `LineSegs` drawing a circle loop at the top
-- Body: vertical line down from head
-- Arms: two diagonal lines from mid-body
-- Legs: two lines from bottom of body
-- All `LineSegs` nodes attached to a single parent `NodePath`
-- `BulletCapsuleShape` wrapping the whole figure for collision
-
-**Acceptance Test:** Player spawns, walks around, jumps, does not clip through ground.
+- Equipment / gear / character sheet
+- Multi-ability combat system with cooldown UI
+- Threat tables, cast times, buffs, debuffs
+- Enemy faction logic or spawn families
+- Audio
+- FX polish
+- Save/load beyond bank contents
+- Robust test coverage
 
 ---
 
-## Phase 2 — Third Person Camera
+## Current File Map
 
-**File:** `camera.py`
-
-**Goals:**
-- Mouse cursor hidden and locked to center of window
-- Mouse X delta → rotate camera horizontally around player
-- Mouse Y delta → pitch camera up/down (clamped to avoid flip)
-- Camera positioned behind and above the player, follows their position each frame
-- WASD movement direction is relative to camera facing
-
-**Implementation Notes:**
-- Create a pivot `NodePath` that sits at the player's position
-- Parent the camera to the pivot at an offset (e.g. `(0, -15, 5)`)
-- Each frame: update pivot position to player pos, apply mouse deltas to pivot H/P
-- Pass camera heading to player movement so forward = camera forward
-
-**Acceptance Test:** Mouse rotates view smoothly, WASD always moves relative to where you're looking.
-
----
-
-## Phase 3 — World & Resource Nodes
-
-**File:** `world.py`, `resources.py`
-
-**Goals:**
-- Simple flat world with a few raised platforms or walls for variety
-- Three resource node types placed in the world
-- Player can walk up, see a prompt, hold E to harvest, receive item in inventory
-
-**Resource Node Types:**
-
-| Node | Visual | Skill | Item | Harvest Time |
-|---|---|---|---|---|
-| Tree | Green cylinder + sphere top | Woodcutting | wood | 2.5s |
-| Rock | Grey scaled cube cluster | Mining | ore | 3.5s |
-| Fishing Spot | Animated blue plane | Fishing | fish | 4.0s |
-
-**Each Resource Node Has:**
-- A `BulletGhostNode` sphere for proximity detection (radius ~3 units)
-- State machine: `IDLE → HARVESTING → DEPLETED → RESPAWNING → IDLE`
-- Harvest timer counts up while E is held; awards item + XP on completion
-- Respawn timer (10–30s) before node resets to IDLE
-- Visual change when depleted (grey out or hide geometry)
-
-**Acceptance Test:** Walk to tree, prompt appears, hold E, receive logs, tree goes grey, respawns after delay.
-
----
-
-## Phase 4 — Inventory, Skills & HUD
-
-**File:** `inventory.py`, `hud.py`
-
-**Goals:**
-- Slot-based inventory visible on screen, updates when items are received
-- Three skills track XP and display level + progress bar
-- Inventory full message when no free slots
-
-**HUD Layout:**
-- **Bottom-right** — inventory grid (4×7, 28 slots), toggle with `I`
-- **Bottom-left** — skill panel showing Woodcutting / Mining / Fishing level and XP bar, toggle with `K`
-- **Top-center** — contextual prompt text ("Press E to chop tree", "Inventory full", etc.)
-
-**Skill XP Formula:**
-```python
-XP_PER_LEVEL = 100
-level = int(skill_xp / XP_PER_LEVEL) + 1
-xp_into_level = skill_xp % XP_PER_LEVEL
-```
-
-**Slot Rendering (per slot in DirectGUI):**
-- `DirectButton` as the slot background (dark grey)
-- Colored `DirectFrame` inside representing the item (uses item color from registry)
-- `OnscreenText` in bottom-right corner for quantity if > 1
-- Hover: show item name in a tooltip frame
-
-**Acceptance Test:** Harvest items, watch inventory fill slot by slot, XP bars increase, level up message appears.
-
----
-
-## Phase 5 — Bank
-
-**File:** `bank.py`
-
-**Goals:**
-- A building in the world (simple box geometry with a sign label)
-- Walking up shows "Press E to open Bank"
-- Bank UI opens as a centered overlay panel
-- Deposit and withdraw items between inventory and bank
-
-**Bank UI Layout:**
-- Large centered `DirectFrame` panel
-- Two sections side by side:
-  - **Left** — Bank slots (8×10 grid)
-  - **Right** — Inventory slots (4×7 grid, mirrored from HUD)
-- Click an inventory slot → deposits to first free bank slot
-- Click a bank slot → withdraws to first free inventory slot
-- Close with E or a close button
-- Bank contents saved to `data/save.json` on every deposit/withdraw
-
-**Acceptance Test:** Walk to bank, open UI, deposit logs, close, reopen — logs still there. Relaunch game — logs persist.
-
----
-
-## Phase 6 — NPC Vendor
-
-**File:** `vendor.py`
-
-**Goals:**
-- NPC in the world as a colored capsule with a floating name label
-- Walking up shows "Press E to talk to Vendor"
-- Vendor UI opens with Buy and Sell tabs
-- Currency is `gold` (already in item registry)
-
-**Shop Stock (buy prices):**
-
-| Item | Buy Price |
-|---|---|
-| Logs | 8 gold |
-| Ore | 12 gold |
-| Raw Fish | 10 gold |
-
-**Sell prices** = `value` field from item registry (always lower than buy).
-
-**Vendor UI Layout:**
-- Centered `DirectFrame` panel
-- Tab buttons at top: **Buy** / **Sell**
-- Buy tab: list of items with name, icon, price, quantity selector (1/5/10/all), Buy button
-- Sell tab: player's carried items with sell price shown, Sell button per slot
-- Gold count displayed at top of panel
-
-**Acceptance Test:** Sell fish to vendor, gold increases. Buy ore with gold, ore appears in inventory, gold decreases.
-
----
-
-## Build Order for Claude Code
-
-Work through these in sequence. Each step is independently testable before moving on.
-
-```
-Step 1   main.py + world.py          Physics world, ground plane, camera placeholder
-Step 2   player.py                   Stick figure + character controller + WASD + jump
-Step 3   camera.py                   Third person mouse look, movement relative to camera
-Step 4   resources.py (one node)     Just the Tree first — proximity, harvest, item drop
-Step 5   inventory.py                Inventory class, item registry, add/remove logic
-Step 6   hud.py (inventory only)     Render the 28-slot grid, update on item add
-Step 7   hud.py (skills)             Add skill panel and XP bars
-Step 8   resources.py (all nodes)    Add Rock and Fishing Spot
-Step 9   bank.py                     Bank building, UI, deposit/withdraw, save/load
-Step 10  vendor.py                   NPC, shop UI, buy/sell, gold currency
+```text
+main.py        Runtime entrypoint and system wiring
+player.py      Player controller, health/regen, targeted projectile logic
+camera.py      Follow camera, snap-behind behavior, right-click free look
+world.py       Ground plane, boundary walls, static scenery collision
+worldgen.py    Procedural resources, rivers/decals, hostile spawning/culling
+resources.py   Resource nodes and shared procedural geometry helpers
+inventory.py   Item registry, inventory logic, skill XP model
+hud.py         Main HUD, health bars, target frame, debug range indicators
+follower.py    Hostile AI, loot, respawn, melee/ranged enemy behavior
+npc.py         Shared helpers for non-hostile NPCs and labels
+bank.py        Bank building, banker NPC, persistent bank UI
+vendor.py      Vendor NPC and shop UI
+test_movement.py  Experimental / local movement test script
+data/save.json Bank persistence only
 ```
 
 ---
 
-## Key Panda3D APIs to Use
+## Runtime Architecture
 
-| Feature | API |
-|---|---|
-| Physics world | `BulletWorld` with `setGravity` |
-| Player controller | `BulletCharacterControllerNode` |
-| Collision shapes | `BulletCapsuleShape`, `BulletPlaneShape`, `BulletBoxShape` |
-| Proximity detection | `BulletGhostNode` |
-| Procedural geometry | `LineSegs`, `GeomVertexData`, `CardMaker` |
-| GUI elements | `DirectFrame`, `DirectButton`, `OnscreenText` |
-| Mouse control | `base.disableMouse()`, `base.mouseWatcherNode.getMouse()` |
-| Frame delta time | `globalClock.getDt()` |
-| Input | `self.accept("e", ...)`, key maps |
-| Tasks (game loop) | `self.taskMgr.add(fn, "name")` |
+### Main Loop
+
+`main.py` owns the high-level runtime:
+
+- creates `ShowBase`
+- configures `BulletWorld`
+- instantiates `World`, `Player`, `CameraController`, `HUD`, `Bank`, `Vendor`
+- calls `generate_world()` to create resources and hostiles
+- routes input
+- advances physics and per-frame updates
+
+Update order is currently:
+
+1. Bullet physics
+2. Player
+3. Camera
+4. Resources
+5. Bank and vendor prompts
+6. Hostiles
+7. Player projectiles
+8. HUD refresh and death/respawn handling
+
+This ordering matters. If combat or prompt behavior starts feeling inconsistent, check `main.py` first before assuming a bug inside the individual actor.
+
+### Shared Geometry Strategy
+
+The project avoids external art assets. Most visuals are built from:
+
+- `LineSegs`
+- handmade `GeomVertexData` meshes
+- `CardMaker`
+- simple `NodePath` composition
+
+Box and sphere helpers currently live in `resources.py` and are reused by multiple modules. This works, but it is not a clean long-term ownership boundary. A future refactor should likely move pure geometry helpers into a dedicated module.
+
+### Prompt Ownership
+
+The prompt line in `hud.py` is shared across the whole game. Multiple systems can write to it:
+
+- resources
+- bank
+- vendor
+- hostile interactions
+- player death
+- targeting feedback
+
+Because it is single-owner UI with many writers, prompt stomping is possible. `clear_prompt_if()` helps, but there is still no formal priority system.
 
 ---
 
-## Notes & Constraints
+## Controls
 
-- Keep each file under ~200 lines where possible — prefer clarity over cleverness
-- No external assets — all geometry is procedural code
-- Bullet physics handles gravity and collision throughout — do not fake it manually
-- The `Inventory` class is identical for player and bank — only the size differs
-- All UI is toggled, never blocking — the game runs while UI is open
-- `save.json` only persists bank contents — inventory resets on launch (intentional for prototype)
+Current intended controls:
+
+- `W` move forward
+- `S` move backward
+- `A` turn left
+- `D` turn right
+- `Shift` sprint
+- `Space` jump
+- `Mouse1` target hostile
+- `1` use melee ability on target
+- `2` use ranged ability on target
+- `E` interact / harvest / attack / loot / open NPC UI depending on context
+- `I` toggle inventory panel
+- `K` toggle skills panel
+- `Mouse3` hold for free-look camera
+- `Escape` close open UI or open pause menu
+
+Important: input behavior has been one of the most actively changed areas in the prototype. Treat movement feel as unstable until it has had a deliberate cleanup pass.
+
+---
+
+## Gameplay Systems
+
+### World Generation
+
+`worldgen.py` currently generates a large square world around the origin.
+
+Key behaviors:
+
+- clears a safe spawn radius around `(0, 0)`
+- places forest clusters
+- places ore patches with tan ground decals
+- generates rivers with blue ribbon decals
+- places fishing spots along river curves
+- spawns both scouts and spitters
+- culls trees, rocks, and hostiles if they land on rivers
+
+The world generator uses separate seeded RNG streams per subsystem, which is good. It means changing one subsystem does not automatically reshuffle all others.
+
+### Resources
+
+`resources.py` implements a base `ResourceNode` with:
+
+- proximity check
+- hold-`E` harvesting
+- depletion
+- delayed respawn
+- XP reward and inventory grant
+
+Current resource types:
+
+- `Tree` -> `wood` / `Woodcutting`
+- `Rock` -> `ore` / `Mining`
+- `FishingSpot` -> `fish` / `Fishing`
+
+### Inventory and Skills
+
+`inventory.py` still uses a simple but serviceable structure:
+
+- `slots`: list of `None` or `{id, quantity}`
+- stackable items merge into existing stacks
+- skills are tracked as XP totals by name
+
+Current items:
+
+- `wood`
+- `ore`
+- `fish`
+- `gold`
+
+Current skills:
+
+- `Woodcutting`
+- `Mining`
+- `Fishing`
+
+### Bank and Vendor
+
+`bank.py` now contains a more intentional building rather than a placeholder box.
+
+The bank includes:
+
+- a procedural structure
+- banker NPC inside the building
+- bank UI with deposit/withdraw
+- persistence to `data/save.json`
+
+`vendor.py` provides:
+
+- reusable humanoid NPC visuals through `npc.py`
+- buy/sell UI
+- gold-driven transactions
+
+Only the bank persists right now.
+
+### Hostiles and Combat
+
+`follower.py` is the current hostile module and includes both enemy types.
+
+`Follower`:
+
+- patrols around a patrol center
+- aggros within range
+- chases and melees the player
+- drops loot
+- falls over on death
+- respawns after a timer
+
+`Spitter` extends `Follower` and adds:
+
+- ranged projectile attacks on cooldown
+
+Player combat currently works like this:
+
+- click a hostile to target it
+- press `1` for melee if in range
+- press `2` for ranged if in range
+- ranged spawns a small projectile that travels to the target
+
+This is already closer to tab-target combat than action combat, but it is still only the first pass.
+
+### Player State
+
+`player.py` currently owns:
+
+- character controller movement
+- health
+- regen after no recent damage
+- death state
+- respawn state
+- outgoing targeted projectiles
+
+The player model has already been upgraded beyond the original stick figure:
+
+- thicker limbs/body
+- spherical head matching the NPC style
+- debug direction arrow above the head
+
+---
+
+## HUD State
+
+`hud.py` now includes:
+
+- top prompt text
+- player health bar
+- target frame with target health
+- inventory popup panel
+- skills popup panel
+- left-side menu buttons for inventory and skills
+- bottom-center debug range indicators
+- death message
+
+The HUD is useful for prototyping, but layout ownership is ad hoc. There is no single design pass behind it yet, so expect future rework.
+
+---
+
+## Known Issues And Risks
+
+### 1. Movement / camera tuning is still fragile
+
+This has been the highest-churn area recently. Small changes in:
+
+- player heading logic
+- sprint handling
+- camera follow speed
+- camera snap behavior
+
+can create large feel regressions quickly.
+
+Before making changes here:
+
+1. read `player.py`
+2. read `camera.py`
+3. verify how `main.py` passes movement state into the camera
+
+Do not assume "movement bug" and "camera bug" are separate.
+
+### 2. Prompt conflicts are real
+
+Several systems write to the same prompt text. This can cause:
+
+- message flicker
+- one system clearing another system's prompt
+- dead-player or UI prompts fighting with nearby interactables
+
+A future prompt manager with priorities would help.
+
+### 3. UI refresh responsibilities are spread around
+
+Inventory, target HUD, health, prompts, and death UI are refreshed from different places. The current approach works, but it is easy to forget a refresh call when adding a new interaction.
+
+### 4. Geometry helpers are duplicated
+
+`make_box_geom()` in `world.py` and `_make_box_geom()` in `resources.py` are parallel implementations. This is manageable now but should eventually be consolidated.
+
+### 5. Persistence is narrow
+
+Only the bank persists. Everything else is runtime-only.
+
+### 6. No reliable local automated verification yet
+
+There is a `test_movement.py`, but there is no meaningful automated test suite. Most validation is still manual in-engine testing.
+
+---
+
+## Developer Notes
+
+### Ground rules
+
+- no external art assets
+- keep geometry procedural
+- prefer simple readable code over clever abstractions
+- be careful with Panda3D backface culling on custom geometry
+- avoid broad rewrites in `player.py` and `camera.py` without testing feel in-engine
+
+### If you add a new NPC
+
+Start with `npc.py`:
+
+- use `InteractableNpc` if it is a proximity interaction NPC
+- use `build_humanoid_npc()` for a quick visual baseline
+- use `attach_billboard_label()` for floating text
+
+### If you add a new hostile type
+
+Start with `follower.py` and `worldgen.py`:
+
+- subclass `Follower` if patrol/aggro/death/loot flow is similar
+- add spawning rules in `worldgen.py`
+- verify river culling still removes bad placements
+- update targeting behavior only if the new enemy should be non-targetable or special-case
+
+### If you add a new item
+
+Update `inventory.py` first. Most UI and trading code depends on the central `ITEMS` registry.
+
+### If you touch combat ranges
+
+You likely need to review all of:
+
+- `player.py` ability ranges
+- `hud.py` range indicators
+- `follower.py` aggro / attack / projectile distances
+
+### If you touch UI opening/closing
+
+Check `main.py` camera UI state handling. The camera changes behavior when UI is open, and that is easy to break accidentally.
+
+---
+
+## Suggested Near-Term Backlog
+
+### Priority 1: Stabilize control feel
+
+- fix remaining sprint-turn edge cases
+- decide whether movement is permanently tank-style or camera-relative
+- clean up camera follow vs right-click freelook behavior
+- remove debug-only behavior once the control model is locked
+
+### Priority 2: Clean combat pass
+
+- add explicit cooldown display for abilities
+- add hit feedback and damage numbers
+- improve enemy death/readability
+- decide whether `E` remains a contextual attack/loot key
+- add clearer target acquisition feedback
+
+### Priority 3: System cleanup
+
+- centralize geometry helpers
+- centralize prompt priority handling
+- reduce UI refresh duplication
+- split large modules if needed after behavior stabilizes
+
+### Priority 4: Content pass
+
+- more enemy variants
+- more items and drops
+- more buildings and service NPCs
+- denser biome identity in world generation
+
+### Priority 5: Persistence
+
+- save player inventory
+- save skill XP
+- decide whether hostile/resource state should persist
+
+---
+
+## Longer-Term Direction
+
+If the project continues toward a fuller ARPG / MMO-lite feel, a reasonable arc would be:
+
+1. lock movement/camera/combat fundamentals
+2. formalize abilities, cooldowns, and stats
+3. expand world content and NPC roles
+4. add persistence and progression
+5. only then spend heavier effort on presentation polish
+
+Right now the biggest leverage is still system clarity, not content volume.
+
+---
+
+## Recommended Next Docs
+
+`PLAN.md` is now the high-level current-state document. Good follow-up docs would be:
+
+- `COMBAT.md` for target/combat rules
+- `WORLDGEN.md` for generation rules and tuning knobs
+- `UI.md` for HUD ownership and panel behavior
+- `KNOWN_ISSUES.md` for active regressions during rapid iteration
+
+Those are optional, but they would keep `PLAN.md` from turning into a dump of implementation detail over time.

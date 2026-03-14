@@ -14,6 +14,7 @@ from panda3d.core import (
     TransparencyAttrib,
 )
 from resources import Tree, Rock, FishingSpot
+from follower import Follower, Spitter
 
 # ---------------------------------------------------------------------------
 # Tuneable constants
@@ -42,10 +43,17 @@ RIVER_POINTS          = 40   # path sample points per river (decal + spots)
 FISHING_SPACING       = 4.0  # minimum distance between consecutive fish spots
 RIVER_WIDTH           = 13.5 # half-width of the river bed decal strip
 
+# Hostiles
+HOSTILE_COUNT         = 4
+SPITTER_COUNT         = 3
+HOSTILE_MIN_SPACING   = 18.0
+HOSTILE_PATROL_RADIUS = 18.0
+
 # Decal colours
-RIVER_COLOR  = (0.10, 0.28, 0.55, 1.0)   # dark blue
-ORE_COLOR    = (0.62, 0.52, 0.35, 1.0)   # sandy tan
-DECAL_Z      = 0.0                        # ground level; depth offset handles ordering
+RIVER_COLOR   = (0.10, 0.28, 0.55, 1.0)  # dark blue
+ORE_COLOR     = (0.62, 0.52, 0.35, 1.0)  # sandy tan
+ORE_DECAL_Z   = 0.0                      # ore ground effect stays on the ground plane
+RIVER_DECAL_Z = 0.01                     # river draws slightly above ground decals
 
 
 # ---------------------------------------------------------------------------
@@ -56,14 +64,14 @@ def generate_world(render, bullet_world, seed=42):
     """
     Procedurally place all resources and ground decals.
 
-    Returns a flat list of ResourceNode instances (Tree / Rock / FishingSpot)
-    for use as main.py's self.resources list.
+    Returns `(resources, hostiles)` for use as main.py's world object lists.
 
     Each sub-system gets its own seeded RNG derived from the master seed so
     that changing forest density never shifts the river layout.
     """
     occupied = []
     resources = []
+    hostiles = []
 
     # cluster_centers tracks placed cluster/patch centres so they don't
     # overlap each other even across subsystems.
@@ -89,16 +97,21 @@ def generate_world(render, bullet_world, seed=42):
     for path in river_paths:
         _place_river_decal(render, path, RIVER_WIDTH, RIVER_COLOR)
 
-    # Post-pass: remove any Tree or Rock that sits on a river bed.
-    # Hide its root node so it disappears visually without complex cleanup.
-    resources = _cull_land_on_water(resources, river_paths)
+    _generate_hostiles(random.Random(seed ^ 0x4444),
+                       render, occupied, hostiles)
+
+    # Post-pass: remove any land object that sits on a river bed.
+    resources, hostiles = _cull_land_on_water(resources, hostiles, river_paths)
 
     trees  = sum(1 for r in resources if isinstance(r, Tree))
     rocks  = sum(1 for r in resources if isinstance(r, Rock))
     fish   = sum(1 for r in resources if isinstance(r, FishingSpot))
-    print(f"[worldgen] trees={trees}  rocks={rocks}  fishing_spots={fish}  rivers={len(river_paths)}")
+    print(
+        f"[worldgen] trees={trees}  rocks={rocks}  fishing_spots={fish}  "
+        f"hostiles={len(hostiles)}  rivers={len(river_paths)}"
+    )
 
-    return resources
+    return resources, hostiles
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +121,7 @@ def generate_world(render, bullet_world, seed=42):
 def _place_river_decal(render, path, half_width, color):
     """
     Build a triangle-strip ribbon along `path` (list of (x, y)) with the
-    given half_width, laid flat at DECAL_Z.
+    given half_width, laid flat at RIVER_DECAL_Z.
     """
     if len(path) < 2:
         return
@@ -146,7 +159,7 @@ def _place_river_decal(render, path, half_width, color):
         for side in (-1, 1):
             vw.addData3(x + side * px * half_width,
                         y + side * py * half_width,
-                        DECAL_Z)
+                        RIVER_DECAL_Z)
             nw.addData3(0, 0, 1)
             cw.addData4(*color)
 
@@ -182,7 +195,7 @@ def _place_circle_decal(render, cx, cy, radius, color, segments=32):
     cw = GeomVertexWriter(vdata, "color")
 
     # Centre vertex
-    vw.addData3(cx, cy, DECAL_Z)
+    vw.addData3(cx, cy, ORE_DECAL_Z)
     nw.addData3(0, 0, 1)
     cw.addData4(*color)
 
@@ -190,7 +203,7 @@ def _place_circle_decal(render, cx, cy, radius, color, segments=32):
         angle = math.radians(i * 360 / segments)
         vw.addData3(cx + radius * math.cos(angle),
                     cy + radius * math.sin(angle),
-                    DECAL_Z)
+                    ORE_DECAL_Z)
         nw.addData3(0, 0, 1)
         cw.addData4(*color)
 
@@ -211,11 +224,11 @@ def _place_circle_decal(render, cx, cy, radius, color, segments=32):
 # Post-generation culling
 # ---------------------------------------------------------------------------
 
-def _cull_land_on_water(resources, river_paths):
+def _cull_land_on_water(resources, hostiles, river_paths):
     """
-    Remove any Tree or Rock whose position falls within RIVER_WIDTH of any
-    river path point. The resource's root NodePath is hidden so it vanishes
-    visually; it is excluded from the returned list so the game loop ignores it.
+    Remove any land object whose position falls within RIVER_WIDTH of any river
+    path point. Hidden objects are excluded from the returned lists so the game
+    loop ignores them.
     """
     # Build a flat list of all river path points for fast checking
     all_river_pts = [pt for path in river_paths for pt in path]
@@ -229,15 +242,23 @@ def _cull_land_on_water(resources, river_paths):
                 return True
         return False
 
-    kept = []
+    kept_resources = []
     for res in resources:
         if isinstance(res, (Tree, Rock)):
             if _on_river(res.pos.x, res.pos.y):
                 res.root.hide()
                 res.ghost_np.hide()
                 continue
-        kept.append(res)
-    return kept
+        kept_resources.append(res)
+
+    kept_hostiles = []
+    for hostile in hostiles:
+        if _on_river(hostile.pos.x, hostile.pos.y):
+            hostile.remove_from_world()
+            continue
+        kept_hostiles.append(hostile)
+
+    return kept_resources, kept_hostiles
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +377,30 @@ def _generate_ore_patches(rng, render, bullet_world, occupied, resources,
                 x, y = pos
                 occupied.append((x, y))
                 resources.append(Rock(render, bullet_world, (x, y, 0)))
+
+
+# ---------------------------------------------------------------------------
+# Hostile generation
+# ---------------------------------------------------------------------------
+
+def _generate_hostiles(rng, render, occupied, hostiles):
+    def _spawn(count, hostile_cls):
+        for _ in range(count):
+            for _attempt in range(150):
+                angle = rng.uniform(0, 2 * math.pi)
+                dist = rng.uniform(100, 430)
+                cx = dist * math.cos(angle)
+                cy = dist * math.sin(angle)
+                if _has_conflict(cx, cy, HOSTILE_MIN_SPACING, occupied):
+                    continue
+                if not _in_bounds(cx, cy, margin=HOSTILE_PATROL_RADIUS + 5):
+                    continue
+                occupied.append((cx, cy))
+                hostiles.append(hostile_cls(render, (cx, cy, 0), patrol_center=(cx, cy, 0)))
+                break
+
+    _spawn(HOSTILE_COUNT, Follower)
+    _spawn(SPITTER_COUNT, Spitter)
 
 
 # ---------------------------------------------------------------------------

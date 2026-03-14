@@ -2,13 +2,11 @@
 vendor.py — NPC vendor, shop stock, buy/sell UI with Buy/Sell tabs.
 """
 
-import math
-from panda3d.core import Vec3, NodePath, TextNode
-from panda3d.bullet import BulletGhostNode, BulletSphereShape
+from panda3d.core import TextNode
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
 
 from inventory import ITEMS
-from resources import _make_cylinder, _make_sphere_approx
+from npc import InteractableNpc, build_humanoid_npc
 
 VENDOR_PROXIMITY = 5.0
 
@@ -23,74 +21,34 @@ SLOT_SIZE = 0.08
 SLOT_GAP = 0.005
 
 
-class Vendor:
+class Vendor(InteractableNpc):
     def __init__(self, render, bullet_world, pos, player_inventory):
-        self.render = render
-        self.bullet_world = bullet_world
-        self.pos = Vec3(*pos)
         self.player_inv = player_inventory
         self.ui_open = False
-        self._in_range = False
-        self._prompt_shown = False
         self._ui = None
         self._active_tab = "buy"
 
-        self._build_npc()
-        self._build_ghost()
-        self._setup_input()
+        super().__init__(render, bullet_world, pos, VENDOR_PROXIMITY, "Press E to talk to Vendor")
 
     # ------------------------------------------------------------------
     # NPC geometry
     # ------------------------------------------------------------------
 
-    def _build_npc(self):
-        root = NodePath("vendor_npc")
-        root.reparentTo(self.render)
-        root.setPos(self.pos)
-
-        # Body — colored capsule (cylinder + sphere head)
-        body = root.attachNewNode(_make_cylinder(0.4, 3.0, (0.2, 0.4, 0.8, 1)))
-        head = root.attachNewNode(_make_sphere_approx(0.5, (0.85, 0.7, 0.5, 1)))
-        head.setPos(0, 0, 3.6)
-
-        # Floating name label (fixed screen position near NPC — approximate)
-        OnscreenText(
-            text="Vendor",
-            pos=(self.pos.x * 0.065, self.pos.z * 0.065 + 0.42),
-            scale=0.035,
-            fg=(1, 1, 0.5, 1),
-            shadow=(0, 0, 0, 0.8),
-            align=TextNode.ACenter,
+    def _build_visual(self):
+        build_humanoid_npc(
+            self.root,
+            body_color=(0.2, 0.4, 0.8, 1),
+            head_color=(0.85, 0.7, 0.5, 1),
+            accent_color=(0.95, 0.75, 0.2, 1),
+            label="Vendor",
         )
-
-    def _build_ghost(self):
-        shape = BulletSphereShape(VENDOR_PROXIMITY)
-        ghost = BulletGhostNode("vendor_ghost")
-        ghost.addShape(shape)
-        self._ghost_np = self.render.attachNewNode(ghost)
-        self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
-        self.bullet_world.attachGhost(ghost)
-
-    def _setup_input(self):
-        pass  # E key handled centrally in main.py
 
     # ------------------------------------------------------------------
     # Proximity update
     # ------------------------------------------------------------------
 
     def update(self, dt, player_pos, hud):
-        dx = player_pos.x - self.pos.x
-        dy = player_pos.y - self.pos.y
-        dist = math.sqrt(dx * dx + dy * dy)
-        self._in_range = dist <= VENDOR_PROXIMITY
-
-        if not self.ui_open:
-            if self._in_range:
-                hud.show_prompt("Press E to talk to Vendor")
-                self._prompt_shown = True
-            elif self._prompt_shown:
-                hud.clear_prompt_if("Press E to talk to Vendor")
-                self._prompt_shown = False
+        self.update_prompt(player_pos, hud, ui_open=self.ui_open)
 
     # ------------------------------------------------------------------
     # UI

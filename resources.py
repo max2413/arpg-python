@@ -113,15 +113,16 @@ def _make_box_geom(sx, sy, sz, color):
     vdata = GeomVertexData("box", fmt, Geom.UHStatic)
     vdata.setNumRows(24)
 
+    hx, hy, hz = sx / 2, sy / 2, sz / 2
     face_verts = [
-        [(-sx/2,-sy/2,-sz/2),(sx/2,-sy/2,-sz/2),(sx/2,sy/2,-sz/2),(-sx/2,sy/2,-sz/2)],
-        [(-sx/2,-sy/2, sz/2),(sx/2,-sy/2, sz/2),(sx/2,sy/2, sz/2),(-sx/2,sy/2, sz/2)],
-        [(-sx/2,-sy/2,-sz/2),(-sx/2,-sy/2,sz/2),(sx/2,-sy/2,sz/2),(sx/2,-sy/2,-sz/2)],
-        [(-sx/2, sy/2,-sz/2),(-sx/2, sy/2,sz/2),(sx/2, sy/2,sz/2),(sx/2, sy/2,-sz/2)],
-        [(-sx/2,-sy/2,-sz/2),(-sx/2, sy/2,-sz/2),(-sx/2,sy/2,sz/2),(-sx/2,-sy/2,sz/2)],
-        [( sx/2,-sy/2,-sz/2),( sx/2, sy/2,-sz/2),( sx/2,sy/2,sz/2),( sx/2,-sy/2,sz/2)],
+        [(-hx, -hy, -hz), (-hx,  hy, -hz), ( hx,  hy, -hz), ( hx, -hy, -hz)],  # bottom
+        [(-hx, -hy,  hz), ( hx, -hy,  hz), ( hx,  hy,  hz), (-hx,  hy,  hz)],  # top
+        [(-hx, -hy, -hz), ( hx, -hy, -hz), ( hx, -hy,  hz), (-hx, -hy,  hz)],  # back
+        [(-hx,  hy, -hz), (-hx,  hy,  hz), ( hx,  hy,  hz), ( hx,  hy, -hz)],  # front
+        [(-hx, -hy, -hz), (-hx, -hy,  hz), (-hx,  hy,  hz), (-hx,  hy, -hz)],  # left
+        [( hx, -hy, -hz), ( hx,  hy, -hz), ( hx,  hy,  hz), ( hx, -hy,  hz)],  # right
     ]
-    normals_list = [(0,0,-1),(0,0,1),(0,-1,0),(0,1,0),(-1,0,0),(1,0,0)]
+    normals_list = [(0, 0, -1), (0, 0, 1), (0, -1, 0), (0, 1, 0), (-1, 0, 0), (1, 0, 0)]
 
     vertex = GeomVertexWriter(vdata, "vertex")
     normal_w = GeomVertexWriter(vdata, "normal")
