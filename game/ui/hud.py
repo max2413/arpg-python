@@ -8,7 +8,7 @@ from direct.gui.DirectGui import (
     DirectFrame, DirectButton, OnscreenText
 )
 from panda3d.core import TextNode, Vec4
-from inventory import ITEMS, SKILLS, XP_PER_LEVEL, xp_to_level, xp_into_level
+from game.systems.inventory import ITEMS, SKILLS
 
 
 # Layout constants

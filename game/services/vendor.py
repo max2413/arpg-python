@@ -5,8 +5,8 @@ vendor.py — NPC vendor, shop stock, buy/sell UI with Buy/Sell tabs.
 from panda3d.core import TextNode
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
 
-from inventory import ITEMS
-from npc import InteractableNpc, build_humanoid_npc
+from game.entities.npc import InteractableNpc, build_humanoid_npc
+from game.systems.inventory import ITEMS
 
 VENDOR_PROXIMITY = 5.0
 

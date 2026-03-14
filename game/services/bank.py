@@ -7,9 +7,9 @@ import json
 from panda3d.core import TextNode
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
 
-from inventory import Inventory, ITEMS
-from npc import InteractableNpc, build_humanoid_npc, attach_billboard_label
-from resources import _make_box_geom, _make_cylinder
+from game.entities.npc import InteractableNpc, build_humanoid_npc, attach_billboard_label
+from game.systems.inventory import Inventory, ITEMS
+from game.world.geometry import make_box_geom, make_cylinder
 
 BANK_PROXIMITY = 5.0
 BANK_SLOTS = 80
@@ -17,7 +17,11 @@ BANK_COLS = 8
 BANK_ROWS = 10
 SLOT_SIZE = 0.075
 SLOT_GAP = 0.004
-SAVE_PATH = os.path.join(os.path.dirname(__file__), "data", "save.json")
+SAVE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "data",
+    "save.json",
+)
 
 
 class Bank(InteractableNpc):
@@ -42,49 +46,49 @@ class Bank(InteractableNpc):
         counter_color = (0.42, 0.27, 0.17, 1)
         pillar_color = (0.62, 0.56, 0.44, 1)
 
-        floor = self.root.attachNewNode(_make_box_geom(10.5, 8.5, 0.35, floor_color))
+        floor = self.root.attachNewNode(make_box_geom(10.5, 8.5, 0.35, floor_color))
         floor.setPos(0, 0, 0.18)
 
-        back_wall = self.root.attachNewNode(_make_box_geom(10.0, 0.4, 4.8, wall_color))
+        back_wall = self.root.attachNewNode(make_box_geom(10.0, 0.4, 4.8, wall_color))
         back_wall.setPos(0, 3.95, 2.6)
 
-        left_wall = self.root.attachNewNode(_make_box_geom(0.4, 7.2, 4.8, wall_color))
+        left_wall = self.root.attachNewNode(make_box_geom(0.4, 7.2, 4.8, wall_color))
         left_wall.setPos(-4.8, 0.35, 2.6)
 
-        right_wall = self.root.attachNewNode(_make_box_geom(0.4, 7.2, 4.8, wall_color))
+        right_wall = self.root.attachNewNode(make_box_geom(0.4, 7.2, 4.8, wall_color))
         right_wall.setPos(4.8, 0.35, 2.6)
 
-        rear_gable = self.root.attachNewNode(_make_box_geom(10.0, 0.35, 1.7, wall_color))
+        rear_gable = self.root.attachNewNode(make_box_geom(10.0, 0.35, 1.7, wall_color))
         rear_gable.setPos(0, 3.9, 5.4)
 
-        front_beam = self.root.attachNewNode(_make_box_geom(10.0, 0.35, 0.55, trim_color))
+        front_beam = self.root.attachNewNode(make_box_geom(10.0, 0.35, 0.55, trim_color))
         front_beam.setPos(0, -3.6, 4.95)
 
         for x in (-4.1, -1.4, 1.4, 4.1):
-            pillar = self.root.attachNewNode(_make_cylinder(0.22, 4.5, pillar_color))
+            pillar = self.root.attachNewNode(make_cylinder(0.22, 4.5, pillar_color))
             pillar.setPos(x, -3.25, 0.35)
 
-        roof_main = self.root.attachNewNode(_make_box_geom(11.4, 9.4, 0.35, roof_color))
+        roof_main = self.root.attachNewNode(make_box_geom(11.4, 9.4, 0.35, roof_color))
         roof_main.setPos(0, 0.1, 5.15)
         roof_main.setP(-8)
 
-        roof_cap = self.root.attachNewNode(_make_box_geom(10.4, 8.4, 0.25, (0.44, 0.29, 0.18, 1)))
+        roof_cap = self.root.attachNewNode(make_box_geom(10.4, 8.4, 0.25, (0.44, 0.29, 0.18, 1)))
         roof_cap.setPos(0, 0.18, 5.62)
         roof_cap.setP(-8)
 
-        counter = self.root.attachNewNode(_make_box_geom(7.4, 1.2, 1.3, counter_color))
+        counter = self.root.attachNewNode(make_box_geom(7.4, 1.2, 1.3, counter_color))
         counter.setPos(0, 1.4, 0.95)
 
-        desk_top = self.root.attachNewNode(_make_box_geom(7.8, 1.45, 0.18, trim_color))
+        desk_top = self.root.attachNewNode(make_box_geom(7.8, 1.45, 0.18, trim_color))
         desk_top.setPos(0, 1.25, 1.58)
 
-        ledger = self.root.attachNewNode(_make_box_geom(1.3, 0.9, 0.18, (0.16, 0.24, 0.22, 1)))
+        ledger = self.root.attachNewNode(make_box_geom(1.3, 0.9, 0.18, (0.16, 0.24, 0.22, 1)))
         ledger.setPos(-1.7, 1.0, 1.77)
 
-        chest = self.root.attachNewNode(_make_box_geom(1.2, 0.9, 1.0, (0.5, 0.38, 0.18, 1)))
+        chest = self.root.attachNewNode(make_box_geom(1.2, 0.9, 1.0, (0.5, 0.38, 0.18, 1)))
         chest.setPos(2.6, 1.05, 0.72)
 
-        sign_board = self.root.attachNewNode(_make_box_geom(3.6, 0.18, 1.1, (0.2, 0.12, 0.08, 1)))
+        sign_board = self.root.attachNewNode(make_box_geom(3.6, 0.18, 1.1, (0.2, 0.12, 0.08, 1)))
         sign_board.setPos(0, -3.55, 4.0)
         attach_billboard_label(sign_board, "BANK", (0, -0.15, -0.18), 1.2, (1, 0.9, 0.55, 1))
 

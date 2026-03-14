@@ -5,7 +5,7 @@ player.py — Stick figure geometry, BulletCharacterController, WASD movement.
 import math
 from panda3d.core import Vec3, LineSegs, NodePath, BitMask32, KeyboardButton
 from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, ZUp
-from resources import _make_sphere_approx
+from game.world.geometry import make_sphere_approx
 
 
 MOVE_SPEED   = 12.0
@@ -61,7 +61,7 @@ def _make_stick_figure():
     body.drawTo(0, 0, 2.0)
     root.attachNewNode(body.create())
 
-    head = root.attachNewNode(_make_sphere_approx(HEAD_RADIUS, skin_rgba))
+    head = root.attachNewNode(make_sphere_approx(HEAD_RADIUS, skin_rgba))
     head.setPos(0, 0, HEAD_Z)
 
     # --- Direction arrow (static, above head, points local +Y) ---
@@ -342,7 +342,7 @@ class TargetProjectile:
 
         self.root = render.attachNewNode("target_projectile")
         self.root.setPos(self.pos)
-        orb = self.root.attachNewNode(_make_sphere_approx(TARGET_PROJECTILE_RADIUS, (0.95, 0.78, 0.22, 1)))
+        orb = self.root.attachNewNode(make_sphere_approx(TARGET_PROJECTILE_RADIUS, (0.95, 0.78, 0.22, 1)))
         orb.setPos(0, 0, 0)
 
     def update(self, dt, hud):

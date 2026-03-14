@@ -74,20 +74,31 @@ Use this file as:
 ## Current File Map
 
 ```text
-main.py        Runtime entrypoint and system wiring
-player.py      Player controller, health/regen, targeted projectile logic
-camera.py      Follow camera, snap-behind behavior, right-click free look
-world.py       Ground plane, boundary walls, static scenery collision
-worldgen.py    Procedural resources, rivers/decals, hostile spawning/culling
-resources.py   Resource nodes and shared procedural geometry helpers
-inventory.py   Item registry, inventory logic, skill XP model
-hud.py         Main HUD, health bars, target frame, debug range indicators
-follower.py    Hostile AI, loot, respawn, melee/ranged enemy behavior
-npc.py         Shared helpers for non-hostile NPCs and labels
-bank.py        Bank building, banker NPC, persistent bank UI
-vendor.py      Vendor NPC and shop UI
-test_movement.py  Experimental / local movement test script
-data/save.json Bank persistence only
+main.py                    Thin repo-root entrypoint
+
+game/
+  app.py                   Runtime entrypoint and top-level system wiring
+  core/
+    camera.py              Follow camera and right-click free look
+  entities/
+    player.py              Player controller, health/regen, targeted projectile logic
+    hostiles.py            Scout/Spitter hostile AI, loot, death, respawn
+    npc.py                 Shared helpers for non-hostile NPCs and labels
+  services/
+    bank.py                Bank building, banker NPC, persistent bank UI
+    vendor.py              Vendor NPC and shop UI
+  systems/
+    inventory.py           Item registry, inventory logic, skill XP model
+  ui/
+    hud.py                 Main HUD, health bars, target frame, debug indicators
+  world/
+    world.py               Ground plane, boundary walls, static scenery collision
+    worldgen.py            Procedural resources, rivers/decals, hostile spawning/culling
+    resources.py           Resource node behavior
+    geometry.py            Shared procedural mesh helpers
+
+test_movement.py           Experimental / local movement test script
+data/save.json             Bank persistence only
 ```
 
 ---
@@ -96,7 +107,11 @@ data/save.json Bank persistence only
 
 ### Main Loop
 
-`main.py` owns the high-level runtime:
+`game/app.py` owns the high-level runtime.
+
+The repo-root `main.py` is now intentionally thin and only forwards into the package entrypoint so that running the project from the root still works.
+
+`game/app.py`:
 
 - creates `ShowBase`
 - configures `BulletWorld`
@@ -127,7 +142,7 @@ The project avoids external art assets. Most visuals are built from:
 - `CardMaker`
 - simple `NodePath` composition
 
-Box and sphere helpers currently live in `resources.py` and are reused by multiple modules. This works, but it is not a clean long-term ownership boundary. A future refactor should likely move pure geometry helpers into a dedicated module.
+Shared geometry helpers now live in `game/world/geometry.py`, which is a better ownership boundary than burying reusable mesh code inside resource modules.
 
 ### Prompt Ownership
 
@@ -171,7 +186,7 @@ Important: input behavior has been one of the most actively changed areas in the
 
 ### World Generation
 
-`worldgen.py` currently generates a large square world around the origin.
+`game/world/worldgen.py` currently generates a large square world around the origin.
 
 Key behaviors:
 
@@ -187,7 +202,7 @@ The world generator uses separate seeded RNG streams per subsystem, which is goo
 
 ### Resources
 
-`resources.py` implements a base `ResourceNode` with:
+`game/world/resources.py` implements a base `ResourceNode` with:
 
 - proximity check
 - hold-`E` harvesting
@@ -203,7 +218,7 @@ Current resource types:
 
 ### Inventory and Skills
 
-`inventory.py` still uses a simple but serviceable structure:
+`game/systems/inventory.py` still uses a simple but serviceable structure:
 
 - `slots`: list of `None` or `{id, quantity}`
 - stackable items merge into existing stacks
@@ -224,7 +239,7 @@ Current skills:
 
 ### Bank and Vendor
 
-`bank.py` now contains a more intentional building rather than a placeholder box.
+`game/services/bank.py` now contains a more intentional building rather than a placeholder box.
 
 The bank includes:
 
@@ -233,7 +248,7 @@ The bank includes:
 - bank UI with deposit/withdraw
 - persistence to `data/save.json`
 
-`vendor.py` provides:
+`game/services/vendor.py` provides:
 
 - reusable humanoid NPC visuals through `npc.py`
 - buy/sell UI
@@ -243,7 +258,7 @@ Only the bank persists right now.
 
 ### Hostiles and Combat
 
-`follower.py` is the current hostile module and includes both enemy types.
+`game/entities/hostiles.py` is the current hostile module and includes both enemy types.
 
 `Follower`:
 
@@ -269,7 +284,7 @@ This is already closer to tab-target combat than action combat, but it is still 
 
 ### Player State
 
-`player.py` currently owns:
+`game/entities/player.py` currently owns:
 
 - character controller movement
 - health
@@ -288,7 +303,7 @@ The player model has already been upgraded beyond the original stick figure:
 
 ## HUD State
 
-`hud.py` now includes:
+`game/ui/hud.py` now includes:
 
 - top prompt text
 - player health bar
@@ -318,9 +333,9 @@ can create large feel regressions quickly.
 
 Before making changes here:
 
-1. read `player.py`
-2. read `camera.py`
-3. verify how `main.py` passes movement state into the camera
+1. read `game/entities/player.py`
+2. read `game/core/camera.py`
+3. verify how `game/app.py` passes movement state into the camera
 
 Do not assume "movement bug" and "camera bug" are separate.
 
@@ -340,7 +355,7 @@ Inventory, target HUD, health, prompts, and death UI are refreshed from differen
 
 ### 4. Geometry helpers are duplicated
 
-`make_box_geom()` in `world.py` and `_make_box_geom()` in `resources.py` are parallel implementations. This is manageable now but should eventually be consolidated.
+This duplication was removed by introducing `game/world/geometry.py`. New mesh helpers should land there unless they are genuinely one-off.
 
 ### 5. Persistence is narrow
 
@@ -364,7 +379,7 @@ There is a `test_movement.py`, but there is no meaningful automated test suite. 
 
 ### If you add a new NPC
 
-Start with `npc.py`:
+Start with `game/entities/npc.py`:
 
 - use `InteractableNpc` if it is a proximity interaction NPC
 - use `build_humanoid_npc()` for a quick visual baseline
@@ -372,7 +387,7 @@ Start with `npc.py`:
 
 ### If you add a new hostile type
 
-Start with `follower.py` and `worldgen.py`:
+Start with `game/entities/hostiles.py` and `game/world/worldgen.py`:
 
 - subclass `Follower` if patrol/aggro/death/loot flow is similar
 - add spawning rules in `worldgen.py`
@@ -381,19 +396,19 @@ Start with `follower.py` and `worldgen.py`:
 
 ### If you add a new item
 
-Update `inventory.py` first. Most UI and trading code depends on the central `ITEMS` registry.
+Update `game/systems/inventory.py` first. Most UI and trading code depends on the central `ITEMS` registry.
 
 ### If you touch combat ranges
 
 You likely need to review all of:
 
-- `player.py` ability ranges
-- `hud.py` range indicators
-- `follower.py` aggro / attack / projectile distances
+- `game/entities/player.py` ability ranges
+- `game/ui/hud.py` range indicators
+- `game/entities/hostiles.py` aggro / attack / projectile distances
 
 ### If you touch UI opening/closing
 
-Check `main.py` camera UI state handling. The camera changes behavior when UI is open, and that is easy to break accidentally.
+Check `game/app.py` camera UI state handling. The camera changes behavior when UI is open, and that is easy to break accidentally.
 
 ---
 

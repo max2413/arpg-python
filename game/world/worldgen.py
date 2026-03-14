@@ -13,8 +13,8 @@ from panda3d.core import (
     GeomTriangles, Geom, GeomNode, Vec3,
     TransparencyAttrib,
 )
-from resources import Tree, Rock, FishingSpot
-from follower import Follower, Spitter
+from game.entities.hostiles import Follower, Spitter
+from game.world.resources import Tree, Rock, FishingSpot
 
 # ---------------------------------------------------------------------------
 # Tuneable constants

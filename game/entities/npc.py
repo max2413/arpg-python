@@ -7,7 +7,7 @@ import math
 from panda3d.core import Vec3, NodePath, TextNode, BillboardEffect
 from panda3d.bullet import BulletGhostNode, BulletSphereShape
 
-from resources import _make_box_geom, _make_cylinder, _make_sphere_approx
+from game.world.geometry import make_box_geom, make_cylinder, make_sphere_approx
 
 
 def attach_billboard_label(parent, text, pos, scale, color, shadow=(0, 0, 0, 0.8)):
@@ -27,14 +27,14 @@ def attach_billboard_label(parent, text, pos, scale, color, shadow=(0, 0, 0, 0.8
 def build_humanoid_npc(parent, body_color, head_color, accent_color=None, label=None):
     root = parent.attachNewNode("npc_actor")
 
-    torso = root.attachNewNode(_make_cylinder(0.42, 2.6, body_color))
+    torso = root.attachNewNode(make_cylinder(0.42, 2.6, body_color))
     torso.setPos(0, 0, 0)
 
-    head = root.attachNewNode(_make_sphere_approx(0.48, head_color))
+    head = root.attachNewNode(make_sphere_approx(0.48, head_color))
     head.setPos(0, 0, 3.1)
 
     if accent_color is not None:
-        sash = root.attachNewNode(_make_box_geom(1.0, 0.18, 0.35, accent_color))
+        sash = root.attachNewNode(make_box_geom(1.0, 0.18, 0.35, accent_color))
         sash.setPos(0, -0.38, 1.55)
 
     if label:

@@ -7,7 +7,7 @@ import random
 
 from panda3d.core import Vec3, NodePath, TextNode, BillboardEffect, LineSegs
 
-from resources import _make_cylinder, _make_sphere_approx
+from game.world.geometry import make_cylinder, make_sphere_approx
 
 PATROL_SPEED = 4.0
 CHASE_SPEED = 8.5
@@ -58,7 +58,7 @@ class EnemyProjectile:
 
         self.root = render.attachNewNode("enemy_projectile")
         self.root.setPos(self.pos)
-        orb = self.root.attachNewNode(_make_sphere_approx(RANGED_PROJECTILE_RADIUS, color))
+        orb = self.root.attachNewNode(make_sphere_approx(RANGED_PROJECTILE_RADIUS, color))
         orb.setPos(0, 0, 0)
 
     def update(self, dt):
@@ -107,10 +107,10 @@ class Follower:
         self._build_target_arrow()
 
     def _build_npc(self):
-        body = self.root.attachNewNode(_make_cylinder(0.35, 2.8, (0.7, 0.25, 0.2, 1)))
+        body = self.root.attachNewNode(make_cylinder(0.35, 2.8, (0.7, 0.25, 0.2, 1)))
         body.setPos(0, 0, 0)
 
-        head = self.root.attachNewNode(_make_sphere_approx(0.45, (0.9, 0.78, 0.62, 1)))
+        head = self.root.attachNewNode(make_sphere_approx(0.45, (0.9, 0.78, 0.62, 1)))
         head.setPos(0, 0, 3.3)
 
         self._label_np = self._make_label("scout_label", "Scout", self._label_color, scale=1.1)
@@ -422,10 +422,10 @@ class Follower:
 class Spitter(Follower):
     def _build_npc(self):
         self._label_color = (0.88, 1, 0.78, 1)
-        body = self.root.attachNewNode(_make_cylinder(0.34, 2.7, (0.3, 0.55, 0.22, 1)))
+        body = self.root.attachNewNode(make_cylinder(0.34, 2.7, (0.3, 0.55, 0.22, 1)))
         body.setPos(0, 0, 0)
 
-        head = self.root.attachNewNode(_make_sphere_approx(0.47, (0.82, 0.88, 0.6, 1)))
+        head = self.root.attachNewNode(make_sphere_approx(0.47, (0.82, 0.88, 0.6, 1)))
         head.setPos(0, 0, 3.25)
 
         self._label_np = self._make_label("spitter_label", "Spitter", self._label_color, scale=1.0)
