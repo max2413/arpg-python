@@ -9,9 +9,11 @@ from panda3d.core import Vec3, NodePath, WindowProperties
 PITCH_MIN = -20.0
 PITCH_MAX = 70.0
 MOUSE_SENSITIVITY = 0.2   # degrees per pixel
-CAM_DISTANCE = 15.0
+CAM_DISTANCE = 20.0
 CAM_HEIGHT = 5.0
-CAM_FOLLOW_SPEED = 16.0
+CAM_ADVANCE_SNAP_SPEED = 720.0
+CAM_TURN_FOLLOW_SPEED = 360.0
+CAM_MOVE_FOLLOW_SPEED = 240.0
 
 
 class CameraController:
@@ -36,7 +38,7 @@ class CameraController:
         self.cam.lookAt(self.pivot)
 
         self._heading = 0.0   # degrees
-        self._pitch = 20.0    # degrees
+        self._pitch = 0.0    # degrees
 
         self._win = app.win
         self._mouse_watcher = app.mouseWatcherNode
@@ -77,13 +79,9 @@ class CameraController:
             self._recenter()
             self._skip_frame = True
 
-    def update(self, dt, player_pos, player_heading, player_advancing, player_moving):
+    def update(self, dt, player_pos, player_heading, player_advancing, player_moving, player_turning):
         if not self._ui_open:
-            if player_advancing:
-                self._heading = player_heading
-            elif player_moving:
-                self._heading = self._approach_angle(self._heading, player_heading, CAM_FOLLOW_SPEED * dt)
-            elif self._free_look and self._mouse_watcher.hasMouse():
+            if self._free_look and not player_moving and not player_turning and self._mouse_watcher.hasMouse():
                 if self._skip_frame:
                     self._skip_frame = False
                     self._recenter()
@@ -101,6 +99,17 @@ class CameraController:
                     self._pitch = max(PITCH_MIN, min(PITCH_MAX, self._pitch))
 
                     self._recenter()
+            else:
+                follow_speed = 0.0
+                if player_advancing:
+                    follow_speed = CAM_ADVANCE_SNAP_SPEED
+                elif player_turning:
+                    follow_speed = CAM_TURN_FOLLOW_SPEED
+                elif player_moving:
+                    follow_speed = CAM_MOVE_FOLLOW_SPEED
+
+                if follow_speed > 0.0:
+                    self._heading = self._approach_angle(self._heading, player_heading, follow_speed * dt)
 
         # Apply to pivot
         self.pivot.setPos(player_pos.x, player_pos.y, player_pos.z + 2)

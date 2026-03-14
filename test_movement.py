@@ -1,7 +1,11 @@
 """
-test_movement.py — Standalone numeric tests for camera-relative movement math.
+test_movement.py — Legacy movement math scratchpad.
 
 Run with: ppython test_movement.py
+
+Note: the live game currently uses heading-based movement rather than the
+camera-relative model explored in this file. Keep it only as a reference
+for future control experiments.
 
 Panda3D heading convention (setH, CCW around Z):
   H=0   → pivot +Y faces world +Y (north).  forward=( 0, 1), right=(1, 0)

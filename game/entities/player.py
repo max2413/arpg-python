@@ -3,9 +3,10 @@ player.py — Stick figure geometry, BulletCharacterController, WASD movement.
 """
 
 import math
-from panda3d.core import Vec3, LineSegs, NodePath, BitMask32, KeyboardButton
+from panda3d.core import Vec3, BitMask32, KeyboardButton
 from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, ZUp
-from game.world.geometry import make_sphere_approx
+from game.entities.npc import build_character_model
+from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile
 
 
 MOVE_SPEED   = 12.0
@@ -13,102 +14,30 @@ SPRINT_MULT  = 5.0   # speed multiplier while shift is held
 JUMP_SPEED   = 12.0
 TURN_SPEED   = 180.0
 SPRINT_TURN_MULT = 1.6
+BACKPEDAL_MULT = 0.75
 MAX_HEALTH   = 100
 HEALTH_REGEN_DELAY = 6.0
 HEALTH_REGEN_RATE  = 4.0
-TARGET_PROJECTILE_SPEED = 30.0
-TARGET_PROJECTILE_RADIUS = 0.2
+DEBUG_COMBAT_LOGS = False
+UNARMED_MELEE_PROFILE = make_combat_profile("Fists", 3.1, 2.0, 18, projectile=False)
+UNARMED_RANGED_PROFILE = make_combat_profile(
+    "Thrown",
+    54.0,
+    2.4,
+    14,
+    projectile=True,
+    projectile_speed=30.0,
+    projectile_radius=0.2,
+    projectile_color=(0.95, 0.78, 0.22, 1),
+)
 
 # Animation
 WALK_FREQ   = 3.5   # cycles per second at walk speed
 WALK_AMP    = 35.0  # max swing angle in degrees
-TORSO_THICKNESS = 4.0
-LIMB_THICKNESS = 3.4
-HEAD_Z = 3.8
-HEAD_RADIUS = 0.48
 MELEE_ABILITY_RANGE = 3.1
 RANGED_ABILITY_RANGE = 54.0
 MELEE_ABILITY_DAMAGE = 18
 RANGED_ABILITY_DAMAGE = 14
-
-
-def _seg(thickness, r, g, b):
-    s = LineSegs()
-    s.setThickness(thickness)
-    s.setColor(r, g, b, 1)
-    return s
-
-
-def _make_stick_figure():
-    """
-    Build a stick figure and return (root, left_leg_np, right_leg_np,
-    left_arm_np, right_arm_np).
-
-    Legs pivot at the hip (Z=2.0) around the X axis (swing forward/back).
-    Arms pivot at the shoulder (Z=3.2) around the X axis (counter-swing).
-    Each limb NodePath has its geometry drawn with the pivot at the origin.
-    """
-    skin_rgb = (0.9, 0.85, 0.75)
-    skin_rgba = (0.9, 0.85, 0.75, 1.0)
-    debug_arrow = (1.0, 0.3, 0.1)
-
-    root = NodePath("stick_figure")
-
-    # --- Static body parts (head, torso) ---
-    body = _seg(TORSO_THICKNESS, *skin_rgb)
-    # Torso
-    body.moveTo(0, 0, HEAD_Z - HEAD_RADIUS)
-    body.drawTo(0, 0, 2.0)
-    root.attachNewNode(body.create())
-
-    head = root.attachNewNode(make_sphere_approx(HEAD_RADIUS, skin_rgba))
-    head.setPos(0, 0, HEAD_Z)
-
-    # --- Direction arrow (static, above head, points local +Y) ---
-    arrow = _seg(LIMB_THICKNESS, *debug_arrow)
-    arrow_base_z = HEAD_Z + 0.9
-    arrow_tip_y = 0.9
-    arrow.moveTo(0, 0, arrow_base_z)
-    arrow.drawTo(0, arrow_tip_y, arrow_base_z)
-    arrow.moveTo(0, arrow_tip_y, arrow_base_z)
-    arrow.drawTo(-0.22, arrow_tip_y - 0.28, arrow_base_z)
-    arrow.moveTo(0, arrow_tip_y, arrow_base_z)
-    arrow.drawTo(0.22, arrow_tip_y - 0.28, arrow_base_z)
-    root.attachNewNode(arrow.create())
-
-    # --- Left arm pivot at shoulder (Z=3.2) ---
-    l_arm_pivot = root.attachNewNode("l_arm_pivot")
-    l_arm_pivot.setPos(0, 0, 3.2)
-    la = _seg(LIMB_THICKNESS, *skin_rgb)
-    la.moveTo(0, 0, 0)
-    la.drawTo(-0.95, 0, -0.85)
-    l_arm_pivot.attachNewNode(la.create())
-
-    # --- Right arm pivot at shoulder (Z=3.2) ---
-    r_arm_pivot = root.attachNewNode("r_arm_pivot")
-    r_arm_pivot.setPos(0, 0, 3.2)
-    ra = _seg(LIMB_THICKNESS, *skin_rgb)
-    ra.moveTo(0, 0, 0)
-    ra.drawTo(0.95, 0, -0.85)
-    r_arm_pivot.attachNewNode(ra.create())
-
-    # --- Left leg pivot at hip (Z=2.0) ---
-    l_leg_pivot = root.attachNewNode("l_leg_pivot")
-    l_leg_pivot.setPos(0, 0, 2.0)
-    ll = _seg(LIMB_THICKNESS, *skin_rgb)
-    ll.moveTo(0, 0, 0)
-    ll.drawTo(-0.58, 0, -1.7)
-    l_leg_pivot.attachNewNode(ll.create())
-
-    # --- Right leg pivot at hip (Z=2.0) ---
-    r_leg_pivot = root.attachNewNode("r_leg_pivot")
-    r_leg_pivot.setPos(0, 0, 2.0)
-    rl = _seg(LIMB_THICKNESS, *skin_rgb)
-    rl.moveTo(0, 0, 0)
-    rl.drawTo(0.58, 0, -1.7)
-    r_leg_pivot.attachNewNode(rl.create())
-
-    return root, l_leg_pivot, r_leg_pivot, l_arm_pivot, r_arm_pivot
 
 
 class Player:
@@ -120,7 +49,11 @@ class Player:
         # Visual
         (self.figure,
          self._l_leg, self._r_leg,
-         self._l_arm, self._r_arm) = _make_stick_figure()
+         self._l_arm, self._r_arm) = build_character_model(
+            render,
+            skin_color=(0.9, 0.85, 0.75, 1.0),
+            tunic_color=(0.68, 0.24, 0.12, 1.0),
+        )
         self.figure.reparentTo(render)
 
         # Animation state
@@ -137,6 +70,8 @@ class Player:
         # Key state
         self._keys = {"w": False, "s": False, "a": False, "d": False}
         self._sprinting = False
+        self._space_down = False
+        self._space_was_down = False
         self._app = None
         self._mouse_watcher = None
         self._setup_keys()
@@ -145,11 +80,13 @@ class Player:
         self.health = float(self.max_health)
         self.dead = False
         self._time_since_damage = HEALTH_REGEN_DELAY
-        self.melee_ability_range = MELEE_ABILITY_RANGE
-        self.ranged_ability_range = RANGED_ABILITY_RANGE
-        self.melee_ability_damage = MELEE_ABILITY_DAMAGE
-        self.ranged_ability_damage = RANGED_ABILITY_DAMAGE
+        self.melee_ability_range = UNARMED_MELEE_PROFILE["range"]
+        self.ranged_ability_range = UNARMED_RANGED_PROFILE["range"]
+        self.melee_ability_damage = UNARMED_MELEE_PROFILE["damage"]
+        self.ranged_ability_damage = UNARMED_RANGED_PROFILE["damage"]
         self.projectiles = []
+        self._auto_attack_style = None
+        self._auto_attack_timer = 0.0
 
     def _setup_keys(self):
         import builtins
@@ -158,12 +95,6 @@ class Player:
             return
         self._app = app
         self._mouse_watcher = app.mouseWatcherNode
-
-        app.accept("space", self._on_jump)
-
-    def _on_jump(self):
-        if not self.dead and self.char_node.isOnGround():
-            self._jump_pending = True
 
     def _animate(self, dt, moving, sprinting):
         if moving:
@@ -200,6 +131,7 @@ class Player:
         self.dead = False
         self.heal_full()
         self._jump_pending = False
+        self.clear_auto_attack()
         self._clear_projectiles()
         self.char_np.setPos(*pos)
         self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
@@ -208,7 +140,7 @@ class Player:
         self.figure.setPos(pos[0], pos[1], pos[2] - 2.0)
         self.figure.setH(0)
 
-    def update(self, dt, cam_pivot):
+    def update(self, dt):
         if self.dead:
             self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
             pos = self.char_np.getPos()
@@ -223,6 +155,10 @@ class Player:
             self.health = min(self.max_health, self.health + HEALTH_REGEN_RATE * dt)
 
         self._poll_input()
+        jump_pressed = self._space_down and not self._space_was_down
+        self._space_was_down = self._space_down
+        if jump_pressed:
+            self._jump_pending = True
 
         heading = self.char_np.getH()
         turn_speed = TURN_SPEED * (SPRINT_TURN_MULT if self._sprinting else 1.0)
@@ -242,10 +178,14 @@ class Player:
             move -= forward
 
         moving = move.lengthSquared() > 0
-        sprinting = moving and self._sprinting
+        sprinting = self._sprinting and self._keys["w"]
         if moving:
             move.normalize()
-            speed = MOVE_SPEED * (SPRINT_MULT if sprinting else 1.0)
+            speed = MOVE_SPEED
+            if self._keys["s"] and not self._keys["w"]:
+                speed *= BACKPEDAL_MULT
+            if sprinting:
+                speed *= SPRINT_MULT
             velocity = move * speed
         else:
             velocity = Vec3(0, 0, 0)
@@ -273,11 +213,81 @@ class Player:
     def get_health_display(self):
         return int(math.ceil(self.health))
 
+    def is_targetable(self):
+        return not self.dead
+
+    def get_target_point(self):
+        return self.get_pos() + Vec3(0, 0, 2.2)
+
+    def get_target_name(self):
+        return "Player"
+
     def is_moving(self):
         return self._keys["w"] or self._keys["s"]
 
     def is_advancing(self):
         return self._keys["w"]
+
+    def is_turning(self):
+        return self._keys["a"] or self._keys["d"]
+
+    def get_heading(self):
+        return self.char_np.getH()
+
+    def get_combat_profile(self, style):
+        if style == "melee":
+            return dict(UNARMED_MELEE_PROFILE)
+        if style == "ranged":
+            return dict(UNARMED_RANGED_PROFILE)
+        return None
+
+    def start_auto_attack(self, style):
+        if style not in ("melee", "ranged"):
+            return
+        if self._auto_attack_style != style:
+            self._auto_attack_style = style
+            self._auto_attack_timer = 0.0
+            _log_combat(f"player auto-attack started style={style}")
+
+    def clear_auto_attack(self):
+        if self._auto_attack_style is not None:
+            _log_combat(f"player auto-attack cleared style={self._auto_attack_style}")
+        self._auto_attack_style = None
+        self._auto_attack_timer = 0.0
+
+    def combat_tick(self, tick_dt, target, hud):
+        if self.dead:
+            self.clear_auto_attack()
+            return
+        if self._auto_attack_style is None:
+            return
+        if target is None or not target.is_targetable():
+            self.clear_auto_attack()
+            return
+
+        profile = self.get_combat_profile(self._auto_attack_style)
+        if profile is None:
+            self.clear_auto_attack()
+            return
+
+        self._auto_attack_timer = max(0.0, self._auto_attack_timer - tick_dt)
+        if self._auto_attack_timer > 0.0:
+            return
+
+        target_point = target.get_target_point()
+        if not in_attack_range(self.get_pos(), target_point, profile):
+            return
+
+        self.face_target(target_point)
+        _log_combat(
+            f"player swing style={self._auto_attack_style} "
+            f"target={target.get_target_name()} damage={profile['damage']}"
+        )
+        if profile["projectile"]:
+            self.fire_target_projectile(target, profile["damage"])
+        else:
+            target.take_damage(profile["damage"], hud, attacker=self)
+        self._auto_attack_timer = profile["speed"]
 
     def _poll_input(self):
         if self._mouse_watcher is None:
@@ -287,6 +297,7 @@ class Player:
         self._keys["s"] = watcher.isButtonDown(KeyboardButton.ascii_key("s"))
         self._keys["a"] = watcher.isButtonDown(KeyboardButton.ascii_key("a"))
         self._keys["d"] = watcher.isButtonDown(KeyboardButton.ascii_key("d"))
+        self._space_down = watcher.isButtonDown(KeyboardButton.space())
         self._sprinting = (
             watcher.isButtonDown(KeyboardButton.shift()) or
             watcher.isButtonDown(KeyboardButton.lshift()) or
@@ -307,7 +318,13 @@ class Player:
     def fire_target_projectile(self, target, damage):
         self._clear_expired_target_projectiles()
         origin = self.get_pos() + Vec3(0, 0, 2.2)
-        self.projectiles.append(TargetProjectile(self.render, origin, target, damage))
+        profile = self.get_combat_profile("ranged")
+        if profile is None:
+            return
+        _log_combat(f"player projectile fired target={target.get_target_name()} damage={damage}")
+        self.projectiles.append(
+            TargetedProjectile(self.render, origin, target, damage, profile, self._on_projectile_hit)
+        )
 
     def update_projectiles(self, dt, hud):
         active = []
@@ -331,40 +348,11 @@ class Player:
                 active.append(projectile)
         self.projectiles = active
 
+    def _on_projectile_hit(self, target, damage, hud):
+        _log_combat(f"player projectile hit target={target.get_target_name()} damage={damage}")
+        target.take_damage(damage, hud, attacker=self)
 
-class TargetProjectile:
-    def __init__(self, render, origin, target, damage):
-        self.render = render
-        self.pos = Vec3(origin)
-        self.target = target
-        self.damage = damage
-        self.expired = False
 
-        self.root = render.attachNewNode("target_projectile")
-        self.root.setPos(self.pos)
-        orb = self.root.attachNewNode(make_sphere_approx(TARGET_PROJECTILE_RADIUS, (0.95, 0.78, 0.22, 1)))
-        orb.setPos(0, 0, 0)
-
-    def update(self, dt, hud):
-        if self.target is None or not self.target.is_targetable():
-            self.remove()
-            self.expired = True
-            return True
-
-        target_pos = self.target.get_target_point()
-        delta = target_pos - self.pos
-        dist = delta.length()
-        if dist <= 0.35:
-            self.target.take_damage(self.damage, hud)
-            self.remove()
-            self.expired = True
-            return True
-
-        delta.normalize()
-        self.pos += delta * min(dist, TARGET_PROJECTILE_SPEED * dt)
-        self.root.setPos(self.pos)
-        return False
-
-    def remove(self):
-        if not self.root.isEmpty():
-            self.root.removeNode()
+def _log_combat(message):
+    if DEBUG_COMBAT_LOGS:
+        print(f"[combat] {message}")

@@ -1,20 +1,34 @@
 """Game runtime entrypoint and top-level wiring."""
 
+import math
+
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
 from panda3d.bullet import BulletWorld
-from panda3d.core import Point2, Point3, TextNode, Vec3, WindowProperties
+from panda3d.core import (
+    AmbientLight,
+    DirectionalLight,
+    Point2,
+    Point3,
+    TextNode,
+    Vec3,
+    WindowProperties,
+)
 
 from game.core.camera import CameraController
 from game.entities.player import Player
 from game.services.bank import Bank
 from game.services.vendor import Vendor
+from game.systems.combat import in_attack_range
 from game.systems.inventory import Inventory
 from game.ui.hud import HUD
 from game.world.world import World
 from game.world.worldgen import generate_world
 
 RESPAWN_DELAY = 3.0
+COMBAT_TICK = 0.2
+TAB_TARGET_RANGE = 96.0
+TAB_TARGET_MIN_DOT = 0.45
 
 
 class Game(ShowBase):
@@ -30,12 +44,14 @@ class Game(ShowBase):
         self._respawn_timer = 0.0
         self._was_player_dead = False
         self._selected_target = None
+        self._combat_tick_accum = 0.0
 
         self.bullet_world = BulletWorld()
         self.bullet_world.setGravity(Vec3(0, 0, -25))
 
         self.inventory = Inventory(size=28)
         self.world = World(self.render, self.bullet_world)
+        self._setup_lighting()
         self.player = Player(self.render, self.bullet_world, self.inventory)
         self.cam_controller = CameraController(self.cam, self.player)
         self.hud = HUD(self.inventory)
@@ -51,10 +67,24 @@ class Game(ShowBase):
         self.accept("e", self._on_e_pressed)
         self.accept("e-up", self._on_e_released)
         self.accept("mouse1", self._on_mouse1)
+        self.accept("tab", self._on_tab_target)
         self.accept("1", self._on_melee_ability)
         self.accept("2", self._on_ranged_ability)
 
         self.taskMgr.add(self.update, "game_update")
+
+    def _setup_lighting(self):
+        ambient = AmbientLight("world_ambient")
+        ambient.setColor((0.42, 0.42, 0.46, 1.0))
+        ambient_np = self.render.attachNewNode(ambient)
+
+        sun = DirectionalLight("world_sun")
+        sun.setColor((0.92, 0.9, 0.82, 1.0))
+        sun_np = self.render.attachNewNode(sun)
+        sun_np.setHpr(-38, -52, 0)
+
+        self.render.setLight(ambient_np)
+        self.render.setLight(sun_np)
 
     def _any_ui_open(self):
         return self.bank.ui_open or self.vendor.ui_open or self._paused
@@ -158,22 +188,12 @@ class Game(ShowBase):
         self._open_pause()
 
     def _on_melee_ability(self):
-        self._use_targeted_ability(
-            self.player.melee_ability_range,
-            self.player.melee_ability_damage,
-            "Target too far for melee",
-            projectile=False,
-        )
+        self._begin_auto_attack("melee", "Target too far for melee")
 
     def _on_ranged_ability(self):
-        self._use_targeted_ability(
-            self.player.ranged_ability_range,
-            self.player.ranged_ability_damage,
-            "Target too far for ranged",
-            projectile=True,
-        )
+        self._begin_auto_attack("ranged", "Target too far for ranged")
 
-    def _use_targeted_ability(self, max_range, damage, fail_msg, projectile):
+    def _begin_auto_attack(self, style, fail_msg):
         if self._paused or self.player.dead:
             return
         target = self._selected_target
@@ -181,16 +201,16 @@ class Game(ShowBase):
             self.hud.show_prompt("No target selected")
             return
 
-        distance = self.player.distance_to(target.get_target_point())
-        if distance > max_range:
+        profile = self.player.get_combat_profile(style)
+        if profile is None:
+            return
+        if not in_attack_range(self.player.get_pos(), target.get_target_point(), profile):
             self.hud.show_prompt(fail_msg)
             return
 
         self.player.face_target(target.get_target_point())
-        if projectile:
-            self.player.fire_target_projectile(target, damage)
-        else:
-            target.take_damage(damage, self.hud)
+        self.player.start_auto_attack(style)
+        self.hud.show_prompt(f"Auto attacking with {profile['name']}")
 
     def _set_selected_target(self, hostile):
         if self._selected_target is hostile:
@@ -202,6 +222,7 @@ class Game(ShowBase):
             self._selected_target.set_targeted(True)
             self.hud.show_prompt(f"Targeted {self._selected_target.get_target_name()}")
         else:
+            self.player.clear_auto_attack()
             self.hud.clear_target()
 
     def _pick_target(self):
@@ -233,23 +254,57 @@ class Game(ShowBase):
 
         self._set_selected_target(best)
 
+    def _on_tab_target(self):
+        if self._paused or self.player.dead or self._any_ui_open():
+            return
+
+        player_pos = self.player.get_pos()
+        heading_rad = math.radians(self.player.get_heading())
+        forward = Vec3(-math.sin(heading_rad), math.cos(heading_rad), 0)
+        best = None
+        best_score = None
+
+        for hostile in self.hostiles:
+            if not hostile.is_targetable():
+                continue
+            to_target = hostile.get_target_point() - player_pos
+            to_target.z = 0
+            distance = to_target.length()
+            if distance <= 0.001 or distance > TAB_TARGET_RANGE:
+                continue
+            to_target.normalize()
+            dot = forward.dot(to_target)
+            if dot < TAB_TARGET_MIN_DOT:
+                continue
+            score = dot * 100.0 - distance
+            if best_score is None or score > best_score:
+                best = hostile
+                best_score = score
+
+        if best is not None:
+            self._set_selected_target(best)
+        else:
+            self.hud.show_prompt("No enemy in front")
+
     def update(self, task):
         if self._paused:
             return task.cont
 
         dt = globalClock.getDt()  # noqa: F821 - Panda3D global
         dt = min(dt, 0.05)
+        self._combat_tick_accum += dt
 
         self.bullet_world.doPhysics(dt)
 
-        self.player.update(dt, self.cam_controller.pivot)
+        self.player.update(dt)
         player_pos = self.player.get_pos()
         self.cam_controller.update(
             dt,
             player_pos,
-            self.player.char_np.getH(),
+            self.player.get_heading(),
             self.player.is_advancing(),
             self.player.is_moving(),
+            self.player.is_turning(),
         )
 
         for resource in self.resources:
@@ -259,6 +314,13 @@ class Game(ShowBase):
         self.vendor.update(dt, player_pos, self.hud)
         for hostile in self.hostiles:
             hostile.update(dt, self.player, self.hud)
+
+        while self._combat_tick_accum >= COMBAT_TICK:
+            self._combat_tick_accum -= COMBAT_TICK
+            self.player.combat_tick(COMBAT_TICK, self._selected_target, self.hud)
+            for hostile in self.hostiles:
+                hostile.combat_tick(COMBAT_TICK, self.player, self.hud)
+
         self.player.update_projectiles(dt, self.hud)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
 

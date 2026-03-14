@@ -7,7 +7,13 @@ import random
 
 from panda3d.core import Vec3, NodePath, TextNode, BillboardEffect, LineSegs
 
-from game.world.geometry import make_cylinder, make_sphere_approx
+from game.entities.npc import build_character_model
+from game.systems.combat import (
+    TargetedProjectile,
+    in_attack_range,
+    make_combat_profile,
+    stop_distance_for,
+)
 
 PATROL_SPEED = 4.0
 CHASE_SPEED = 8.5
@@ -22,6 +28,8 @@ PATROL_WAIT_MAX = 1.8
 ATTACK_RANGE = 2.8
 ATTACK_DAMAGE = 15
 ATTACK_COOLDOWN = 1.0
+AGGRO_RESET_TIME = 6.0
+RESET_REGEN_RATE = 10.0
 PLAYER_ATTACK_DAMAGE = 20
 PLAYER_ATTACK_COOLDOWN = 0.25
 HOSTILE_MAX_HEALTH = 45
@@ -33,45 +41,24 @@ LOOT_INDICATOR_TEXT = "Loot"
 LOOT_RESPAWN_MULT = 2.0
 HOSTILE_HIT_RADIUS = 1.65
 HOSTILE_HIT_HEIGHT = 3.8
-RANGED_PROJECTILE_SPEED = 22.0
-RANGED_PROJECTILE_RANGE = 20.0
-RANGED_PROJECTILE_DAMAGE = 10
+RANGED_PROJECTILE_DAMAGE = 7
 RANGED_ATTACK_DISTANCE = 14.0
-RANGED_ATTACK_COOLDOWN = 2.2
-RANGED_PROJECTILE_RADIUS = 0.24
 TARGETED_LABEL_COLOR = (1.0, 0.82, 0.22, 1)
-
-
-class EnemyProjectile:
-    def __init__(self, render, pos, direction, color, speed, max_range, damage):
-        self.pos = Vec3(pos)
-        self.direction = Vec3(direction)
-        self.direction.z = 0
-        if self.direction.lengthSquared() == 0:
-            self.direction = Vec3(0, 1, 0)
-        else:
-            self.direction.normalize()
-        self.speed = speed
-        self.max_range = max_range
-        self.damage = damage
-        self.distance_traveled = 0.0
-
-        self.root = render.attachNewNode("enemy_projectile")
-        self.root.setPos(self.pos)
-        orb = self.root.attachNewNode(make_sphere_approx(RANGED_PROJECTILE_RADIUS, color))
-        orb.setPos(0, 0, 0)
-
-    def update(self, dt):
-        step = self.direction * (self.speed * dt)
-        self.pos += step
-        self.distance_traveled += step.length()
-        self.root.setPos(self.pos)
-
-    def is_expired(self):
-        return self.distance_traveled >= self.max_range
-
-    def remove(self):
-        self.root.removeNode()
+WALK_FREQ = 3.2
+WALK_AMP = 30.0
+DEBUG_COMBAT_LOGS = False
+SCOUT_MELEE_PROFILE = make_combat_profile("Claws", ATTACK_RANGE, 2.2, ATTACK_DAMAGE, projectile=False)
+SPITTER_RANGED_PROFILE = make_combat_profile(
+    "Spit",
+    RANGED_ATTACK_DISTANCE,
+    2.6,
+    RANGED_PROJECTILE_DAMAGE,
+    projectile=True,
+    preferred_range=12.0,
+    projectile_speed=22.0,
+    projectile_radius=0.24,
+    projectile_color=(0.7, 1.0, 0.35, 1),
+)
 
 
 class Follower:
@@ -85,6 +72,7 @@ class Follower:
         self._patrol_target = self._pick_patrol_target()
         self._attack_cooldown = 0.0
         self._player_attack_cooldown = 0.0
+        self._time_since_damage_taken = AGGRO_RESET_TIME
         self.max_health = HOSTILE_MAX_HEALTH
         self.health = self.max_health
         self.dead = False
@@ -95,8 +83,10 @@ class Follower:
         self._dead_time = 0.0
         self._loot = []
         self.projectiles = []
+        self._combat_target = None
         self._targeted = False
         self._label_color = (1, 0.95, 0.8, 1)
+        self._walk_t = 0.0
 
         self.root = NodePath("follower_npc")
         self.root.reparentTo(render)
@@ -107,11 +97,11 @@ class Follower:
         self._build_target_arrow()
 
     def _build_npc(self):
-        body = self.root.attachNewNode(make_cylinder(0.35, 2.8, (0.7, 0.25, 0.2, 1)))
-        body.setPos(0, 0, 0)
-
-        head = self.root.attachNewNode(make_sphere_approx(0.45, (0.9, 0.78, 0.62, 1)))
-        head.setPos(0, 0, 3.3)
+        (_, self._l_leg, self._r_leg, self._l_arm, self._r_arm) = build_character_model(
+            self.root,
+            skin_color=(0.9, 0.78, 0.62, 1.0),
+            tunic_color=(0.68, 0.24, 0.12, 1.0),
+        )
 
         self._label_np = self._make_label("scout_label", "Scout", self._label_color, scale=1.1)
         self._label_np.setPos(0, 0, 4.3)
@@ -157,15 +147,16 @@ class Follower:
 
     def update(self, dt, player, hud):
         player_pos = player.get_pos()
-        self._attack_cooldown = max(0.0, self._attack_cooldown - dt)
         self._player_attack_cooldown = max(0.0, self._player_attack_cooldown - dt)
         self._hurt_flash_timer = max(0.0, self._hurt_flash_timer - dt)
+        self._time_since_damage_taken += dt
         self._update_projectiles(dt, player)
         player_target = Vec3(player_pos.x, player_pos.y, self.pos.z)
         to_player = player_target - self.pos
         player_dist = to_player.length()
 
         if self.dead:
+            self._animate(dt, False)
             self._dead_time += dt
             if not player.dead and self._loot and player_dist <= ATTACK_RANGE:
                 self._show_prompt(hud, LOOT_PROMPT)
@@ -185,18 +176,14 @@ class Follower:
 
         if player.dead:
             self._clear_prompt(hud)
-            self._state = "patrol"
-            self._wait_timer = 0.0
-            self._patrol_target = self._pick_patrol_target()
-            self._move_toward(self.patrol_center, PATROL_SPEED, dt, stop_distance=0.0)
+            self._enter_reset()
+            self._update_reset(dt)
             return
 
         if self._state == "patrol" and player_dist <= AGGRO_DISTANCE:
-            self._state = "chase"
-        elif self._state == "chase" and player_dist >= LEASH_DISTANCE:
-            self._state = "patrol"
-            self._wait_timer = 0.0
-            self._patrol_target = self._pick_patrol_target()
+            self._acquire_target(player, "proximity")
+        elif self._state == "chase" and self._time_since_damage_taken >= AGGRO_RESET_TIME:
+            self._enter_reset()
 
         if player_dist <= ATTACK_RANGE:
             self._show_prompt(hud, ATTACK_PROMPT)
@@ -204,43 +191,35 @@ class Follower:
             self._clear_prompt(hud)
 
         if self._state == "chase":
-            self._move_toward(player_target, CHASE_SPEED, dt, stop_distance=STOP_DISTANCE)
-            if player_dist <= ATTACK_RANGE and self._attack_cooldown <= 0.0:
-                player.take_damage(ATTACK_DAMAGE)
-                self._attack_cooldown = ATTACK_COOLDOWN
+            self._update_chase(dt)
+            return
+
+        if self._state == "reset":
+            self._update_reset(dt)
             return
 
         if self._wait_timer > 0.0:
             self._wait_timer = max(0.0, self._wait_timer - dt)
+            self._animate(dt, False)
             return
 
         patrol_target = Vec3(self._patrol_target.x, self._patrol_target.y, self.pos.z)
         if (patrol_target - self.pos).length() <= PATROL_POINT_TOLERANCE:
             self._wait_timer = self._rng.uniform(PATROL_WAIT_MIN, PATROL_WAIT_MAX)
             self._patrol_target = self._pick_patrol_target()
+            self._animate(dt, False)
             return
 
         self._move_toward(patrol_target, PATROL_SPEED, dt, stop_distance=0.0)
+        self._animate(dt, True)
 
     def _update_projectiles(self, dt, player):
         active = []
         for projectile in self.projectiles:
-            projectile.update(dt)
-            if self._projectile_hit_player(projectile, player):
-                projectile.remove()
-                continue
-            if projectile.is_expired():
-                projectile.remove()
+            if projectile.update(dt):
                 continue
             active.append(projectile)
         self.projectiles = active
-
-    def _projectile_hit_player(self, projectile, player):
-        if player.dead:
-            return False
-        player_pos = player.get_pos() + Vec3(0, 0, 1.8)
-        delta = projectile.pos - player_pos
-        return delta.lengthSquared() <= 1.2 * 1.2 and player.take_damage(projectile.damage)
 
     def _pick_patrol_target(self):
         angle = self._rng.uniform(0, 2 * math.pi)
@@ -269,6 +248,94 @@ class Follower:
         heading_delta = max(-max_turn, min(max_turn, heading_delta))
         self.root.setH(current_heading + heading_delta)
 
+    def _update_chase(self, dt):
+        target = self._combat_target
+        if target is None or not self._is_valid_combat_target(target):
+            self._enter_reset()
+            self._animate(dt, False)
+            return
+
+        target_point = target.get_target_point()
+        self._face_target(target_point)
+        profile = self.get_combat_profile()
+        if in_attack_range(self.pos, target_point, profile):
+            self._animate(dt, False)
+            return
+
+        chase_target = Vec3(target_point.x, target_point.y, self.pos.z)
+        self._move_toward(chase_target, CHASE_SPEED, dt, stop_distance=stop_distance_for(profile))
+        self._animate(dt, True)
+
+    def _enter_reset(self):
+        if self.dead:
+            return
+        _log_combat(f"hostile reset target={self.get_target_name()} health={self.health:.1f}")
+        self._state = "reset"
+        self._wait_timer = 0.0
+        self._attack_cooldown = 0.0
+        self._combat_target = None
+        self._clear_projectiles()
+
+    def _update_reset(self, dt):
+        self.health = min(self.max_health, self.health + RESET_REGEN_RATE * dt)
+        self._move_toward(self.patrol_center, PATROL_SPEED, dt, stop_distance=0.0)
+        if (self.patrol_center - self.pos).length() <= PATROL_POINT_TOLERANCE:
+            self.health = self.max_health
+            self._state = "patrol"
+            self._wait_timer = 0.0
+            self._patrol_target = self._pick_patrol_target()
+            self._time_since_damage_taken = AGGRO_RESET_TIME
+            self._animate(dt, False)
+            return
+        self._animate(dt, True)
+
+    def get_combat_profile(self):
+        return dict(SCOUT_MELEE_PROFILE)
+
+    def combat_tick(self, tick_dt, player, hud):
+        if self.dead or player.dead or self._state != "chase":
+            return
+
+        profile = self.get_combat_profile()
+        if profile is None:
+            return
+
+        if self._combat_target is None:
+            self._combat_target = player
+
+        self._attack_cooldown = max(0.0, self._attack_cooldown - tick_dt)
+        if self._attack_cooldown > 0.0:
+            return
+
+        target = self._combat_target
+        if target is None or not self._is_valid_combat_target(target):
+            return
+
+        target_point = target.get_target_point()
+        if not in_attack_range(self.pos, target_point, profile):
+            return
+
+        self._face_target(target_point)
+        if profile["projectile"]:
+            _log_combat(f"hostile projectile attack attacker={self.get_target_name()} damage={profile['damage']}")
+            self._fire_projectile(target, profile)
+        else:
+            _log_combat(f"hostile melee attack attacker={self.get_target_name()} damage={profile['damage']}")
+            target.take_damage(profile["damage"])
+        self._attack_cooldown = profile["speed"]
+
+    def _animate(self, dt, moving):
+        if moving:
+            self._walk_t += dt * WALK_FREQ * 2 * math.pi
+        else:
+            self._walk_t = 0.0
+
+        swing = math.sin(self._walk_t) * WALK_AMP if moving else 0.0
+        self._l_leg.setP(swing)
+        self._r_leg.setP(-swing)
+        self._l_arm.setP(-swing * 0.6)
+        self._r_arm.setP(swing * 0.6)
+
     def try_player_interact(self, player, inventory, hud):
         if player.dead:
             return False
@@ -285,7 +352,7 @@ class Follower:
         if self._player_attack_cooldown > 0.0:
             return True
 
-        self.take_damage(PLAYER_ATTACK_DAMAGE, hud)
+        self.take_damage(PLAYER_ATTACK_DAMAGE, hud, attacker=player)
         self._player_attack_cooldown = PLAYER_ATTACK_COOLDOWN
         return True
 
@@ -319,11 +386,13 @@ class Follower:
                 needed_slots += 1
         return inventory.get_free_slots() >= needed_slots
 
-    def take_damage(self, amount, hud):
+    def take_damage(self, amount, hud, attacker=None):
         if self.dead or amount <= 0:
             return False
 
         self.health = max(0, self.health - amount)
+        self._time_since_damage_taken = 0.0
+        _log_combat(f"hostile damaged target={self.get_target_name()} amount={amount} health={self.health:.1f}")
         if self.health == 0:
             self.dead = True
             self._state = "dead"
@@ -331,6 +400,7 @@ class Follower:
             self._player_attack_cooldown = 0.0
             self._wait_timer = 0.0
             self._dead_time = 0.0
+            self._combat_target = None
             self._loot = self._roll_loot()
             self._clear_projectiles()
             if self._loot:
@@ -342,6 +412,11 @@ class Follower:
             self._clear_prompt(hud)
             return True
 
+        self._state = "chase"
+        self._combat_target = attacker
+        self._wait_timer = 0.0
+        self._attack_cooldown = 0.0
+        _log_combat(f"hostile aggro target={self.get_target_name()} reason=damage")
         self.root.setColorScale(1.3, 0.6, 0.6, 1)
         self._hurt_flash_timer = HURT_FLASH_TIME
         return False
@@ -359,8 +434,10 @@ class Follower:
         self._patrol_target = self._pick_patrol_target()
         self._attack_cooldown = 0.0
         self._player_attack_cooldown = 0.0
+        self._time_since_damage_taken = AGGRO_RESET_TIME
         self._dead_time = 0.0
         self._loot = []
+        self._combat_target = None
         self._loot_label_np.hide()
         self._clear_projectiles()
 
@@ -418,15 +495,45 @@ class Follower:
             projectile.remove()
         self.projectiles = []
 
+    def _acquire_target(self, target, reason):
+        self._combat_target = target
+        self._state = "chase"
+        self._wait_timer = 0.0
+        self._attack_cooldown = 0.0
+        self._time_since_damage_taken = 0.0
+        _log_combat(f"hostile aggro target={self.get_target_name()} reason={reason}")
+
+    def _is_valid_combat_target(self, target):
+        return target is not None and not getattr(target, "dead", False)
+
+    def _face_target(self, target_pos):
+        delta = target_pos - self.pos
+        delta.z = 0
+        if delta.lengthSquared() > 0:
+            self.root.setH(math.degrees(math.atan2(-delta.x, delta.y)))
+
+    def _fire_projectile(self, target, profile):
+        origin = Vec3(self.pos.x, self.pos.y, self.pos.z + 2.1)
+        toward_target = target.get_target_point() - origin
+        if toward_target.lengthSquared() > 0:
+            toward_target.normalize()
+            origin += toward_target * 0.8
+        self.projectiles.append(
+            TargetedProjectile(self.render, origin, target, profile["damage"], profile, self._on_projectile_hit)
+        )
+
+    def _on_projectile_hit(self, target, damage, _hit_context):
+        target.take_damage(damage)
+
 
 class Spitter(Follower):
     def _build_npc(self):
         self._label_color = (0.88, 1, 0.78, 1)
-        body = self.root.attachNewNode(make_cylinder(0.34, 2.7, (0.3, 0.55, 0.22, 1)))
-        body.setPos(0, 0, 0)
-
-        head = self.root.attachNewNode(make_sphere_approx(0.47, (0.82, 0.88, 0.6, 1)))
-        head.setPos(0, 0, 3.25)
+        (_, self._l_leg, self._r_leg, self._l_arm, self._r_arm) = build_character_model(
+            self.root,
+            skin_color=(0.82, 0.88, 0.6, 1.0),
+            tunic_color=(0.24, 0.48, 0.18, 1.0),
+        )
 
         self._label_np = self._make_label("spitter_label", "Spitter", self._label_color, scale=1.0)
         self._label_np.setPos(0, 0, 4.3)
@@ -443,36 +550,16 @@ class Spitter(Follower):
         self._loot_label_np.setEffect(BillboardEffect.makePointEye())
         self._loot_label_np.hide()
 
-    def update(self, dt, player, hud):
-        super().update(dt, player, hud)
-
-        if self.dead or player.dead or self._state != "chase":
-            return
-
-        player_target = Vec3(player.get_pos().x, player.get_pos().y, self.pos.z)
-        to_player = player_target - self.pos
-        player_dist = to_player.length()
-        if ATTACK_RANGE < player_dist <= RANGED_ATTACK_DISTANCE and self._attack_cooldown <= 0.0:
-            self._fire_projectile(to_player)
-            self._attack_cooldown = RANGED_ATTACK_COOLDOWN
-
-    def _fire_projectile(self, to_player):
-        direction = Vec3(to_player)
-        origin = Vec3(self.pos.x, self.pos.y, self.pos.z + 2.1) + direction.normalized() * 0.8
-        self.projectiles.append(
-            EnemyProjectile(
-                self.render,
-                origin,
-                direction,
-                color=(0.7, 1.0, 0.35, 1),
-                speed=RANGED_PROJECTILE_SPEED,
-                max_range=RANGED_PROJECTILE_RANGE,
-                damage=RANGED_PROJECTILE_DAMAGE,
-            )
-        )
+    def get_combat_profile(self):
+        return dict(SPITTER_RANGED_PROFILE)
 
     def _roll_loot(self):
         loot = super()._roll_loot()
         if self._rng.random() < 0.7:
             loot.append(("fish", 1))
         return loot
+
+
+def _log_combat(message):
+    if DEBUG_COMBAT_LOGS:
+        print(f"[combat] {message}")
