@@ -77,7 +77,7 @@ class ResourceNode:
         dist = math.sqrt(dx * dx + dy * dy)
         return dist <= PROXIMITY_RADIUS
 
-    def update(self, dt, player_pos, player, inventory, hud):
+    def update(self, dt, player_pos, player, inventory, skills, hud):
         self.in_range = self._check_proximity(player_pos)
 
         if self.state == IDLE:
@@ -106,11 +106,11 @@ class ResourceNode:
                     self.harvest_timer = 0.0
                 else:
                     inventory.add_item(self.item_id)
-                    levels = inventory.add_xp(self.skill, self.xp_reward)
+                    levels = skills.add_xp(self.skill, self.xp_reward)
                     hud.refresh_inventory()
                     hud.refresh_skills()
                     if levels > 0:
-                        hud.show_prompt(f"{self.skill} level up! Level {inventory.get_level(self.skill)}")
+                        hud.show_prompt(f"{self.skill} level up! Level {skills.get_level(self.skill)}")
                     self.state = DEPLETED
                     self.respawn_timer = 0.0
                     self._set_depleted_look()
@@ -210,12 +210,12 @@ class FishingSpot(ResourceNode):
         self._plane.setColor(0.2, 0.5, 0.8, 0.8)
         self._plane.setTransparency(TransparencyAttrib.MAlpha)
 
-    def update(self, dt, player_pos, player, inventory, hud):
+    def update(self, dt, player_pos, player, inventory, skills, hud):
         # Animate the water shimmer
         self._anim_timer += dt
         scale = 1.0 + 0.08 * math.sin(self._anim_timer * 3.0)
         self._plane.setScale(scale, scale, 1)
-        super().update(dt, player_pos, player, inventory, hud)
+        super().update(dt, player_pos, player, inventory, skills, hud)
 
     def _set_depleted_look(self):
         self._plane.setColor(0.5, 0.5, 0.5, 0.5)

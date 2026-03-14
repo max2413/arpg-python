@@ -1,0 +1,88 @@
+{
+  "wood": {
+    "name": "Logs",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.48, 0.28, 0.14, 1.0],
+    "value": 5,
+    "icon_spec": {"kind": "logs"}
+  },
+  "ore": {
+    "name": "Ore",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.55, 0.57, 0.62, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "ore"}
+  },
+  "fish": {
+    "name": "Raw Fish",
+    "category": "raw_material",
+    "subtype": "fish",
+    "stackable": true,
+    "color": [0.24, 0.56, 0.84, 1.0],
+    "value": 6,
+    "icon_spec": {"kind": "fish"}
+  },
+  "gold": {
+    "name": "Gold",
+    "category": "currency",
+    "subtype": "coin",
+    "stackable": true,
+    "color": [0.96, 0.78, 0.12, 1.0],
+    "value": 1,
+    "icon_spec": {"kind": "coins"}
+  },
+  "bronze_sword": {
+    "name": "Bronze Sword",
+    "category": "equipment",
+    "subtype": "sword",
+    "stackable": false,
+    "color": [0.72, 0.46, 0.2, 1.0],
+    "value": 30,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"}
+  },
+  "oak_shield": {
+    "name": "Oak Shield",
+    "category": "equipment",
+    "subtype": "shield",
+    "stackable": false,
+    "color": [0.45, 0.3, 0.16, 1.0],
+    "value": 24,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "shield"}
+  },
+  "cloth_hood": {
+    "name": "Cloth Hood",
+    "category": "equipment",
+    "subtype": "hood",
+    "stackable": false,
+    "color": [0.52, 0.22, 0.2, 1.0],
+    "value": 18,
+    "equipment_slot": "head",
+    "icon_spec": {"kind": "hood"}
+  },
+  "traveler_tunic": {
+    "name": "Traveler Tunic",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.64, 0.24, 0.12, 1.0],
+    "value": 28,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"}
+  },
+  "canvas_pants": {
+    "name": "Canvas Pants",
+    "category": "equipment",
+    "subtype": "legs",
+    "stackable": false,
+    "color": [0.4, 0.44, 0.52, 1.0],
+    "value": 22,
+    "equipment_slot": "legs",
+    "icon_spec": {"kind": "legs"}
+  }
+}

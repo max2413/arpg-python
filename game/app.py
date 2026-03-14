@@ -21,6 +21,7 @@ from game.services.bank import Bank
 from game.services.vendor import Vendor
 from game.systems.combat import in_attack_range
 from game.systems.inventory import Inventory
+from game.systems.skills import Skills
 from game.ui.hud import HUD
 from game.world.world import World
 from game.world.worldgen import generate_world
@@ -50,11 +51,13 @@ class Game(ShowBase):
         self.bullet_world.setGravity(Vec3(0, 0, -25))
 
         self.inventory = Inventory(size=28)
+        self.inventory.add_item("gold", 1000)
+        self.skills = Skills()
         self.world = World(self.render, self.bullet_world)
         self._setup_lighting()
         self.player = Player(self.render, self.bullet_world, self.inventory)
         self.cam_controller = CameraController(self.cam, self.player)
-        self.hud = HUD(self.inventory)
+        self.hud = HUD(self.inventory, self.skills)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
 
         self.resources, self.hostiles = generate_world(self.render, self.bullet_world, seed=42)
@@ -62,6 +65,7 @@ class Game(ShowBase):
         self.vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory)
 
         self.accept("i", self.hud.toggle_inventory)
+        self.accept("c", self.hud.toggle_equipment)
         self.accept("k", self.hud.toggle_skills)
         self.accept("escape", self._on_escape)
         self.accept("e", self._on_e_pressed)
@@ -87,6 +91,9 @@ class Game(ShowBase):
         self.render.setLight(sun_np)
 
     def _any_ui_open(self):
+        return self.bank.ui_open or self.vendor.ui_open or self.hud.is_any_window_open() or self._paused
+
+    def _modal_ui_open(self):
         return self.bank.ui_open or self.vendor.ui_open or self._paused
 
     def _open_ui(self, ui_obj):
@@ -94,7 +101,7 @@ class Game(ShowBase):
         self.cam_controller.set_ui_open(True)
 
     def _sync_camera_ui_state(self):
-        self.cam_controller.set_ui_open(self._any_ui_open())
+        self.cam_controller.set_ui_open(self._modal_ui_open())
 
     def _open_pause(self):
         self._paused = True
@@ -255,7 +262,7 @@ class Game(ShowBase):
         self._set_selected_target(best)
 
     def _on_tab_target(self):
-        if self._paused or self.player.dead or self._any_ui_open():
+        if self._paused or self.player.dead or self._modal_ui_open():
             return
 
         player_pos = self.player.get_pos()
@@ -308,7 +315,7 @@ class Game(ShowBase):
         )
 
         for resource in self.resources:
-            resource.update(dt, player_pos, self.player, self.inventory, self.hud)
+            resource.update(dt, player_pos, self.player, self.inventory, self.skills, self.hud)
 
         self.bank.update(dt, player_pos, self.hud)
         self.vendor.update(dt, player_pos, self.hud)

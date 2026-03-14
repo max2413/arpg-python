@@ -1,60 +1,160 @@
-"""
-inventory.py — Inventory class, item registry, skill/XP data.
-"""
+"""Inventory containers and item registry."""
 
-ITEMS = {
-    "wood": {"name": "Logs",     "stackable": True, "color": (0.4, 0.2, 0.1, 1), "value": 5},
-    "ore":  {"name": "Ore",      "stackable": True, "color": (0.5, 0.5, 0.5, 1), "value": 8},
-    "fish": {"name": "Raw Fish", "stackable": True, "color": (0.2, 0.5, 0.8, 1), "value": 6},
-    "gold": {"name": "Gold",     "stackable": True, "color": (1.0, 0.8, 0.0, 1), "value": 1},
+import copy
+import json
+import os
+
+
+ITEM_CATEGORY_RAW = "raw_material"
+ITEM_CATEGORY_CURRENCY = "currency"
+ITEM_CATEGORY_EQUIPMENT = "equipment"
+
+EQUIPMENT_SLOTS = {
+    "head": {"label": "Head"},
+    "chest": {"label": "Chest"},
+    "legs": {"label": "Legs"},
+    "weapon": {"label": "Weapon"},
+    "offhand": {"label": "Offhand"},
 }
 
-SKILLS = ["Woodcutting", "Mining", "Fishing"]
-
-XP_PER_LEVEL = 100
-
-
-def xp_to_level(xp):
-    return int(xp / XP_PER_LEVEL) + 1
+ITEMS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "data",
+    "items.json",
+)
 
 
-def xp_into_level(xp):
-    return xp % XP_PER_LEVEL
+def _normalize_item_defs(raw_items):
+    items = {}
+    for item_id, item_def in raw_items.items():
+        normalized = dict(item_def)
+        normalized["color"] = tuple(normalized["color"])
+        items[item_id] = normalized
+    return items
+
+
+def _load_items():
+    with open(ITEMS_PATH) as handle:
+        return _normalize_item_defs(json.load(handle))
+
+
+ITEMS = _load_items()
+
+def get_item_def(item_id):
+    return ITEMS.get(item_id)
+
+
+def get_item_name(item_id):
+    item_def = get_item_def(item_id)
+    return item_def["name"] if item_def else item_id
+
+
+def is_stackable(item_id):
+    item_def = get_item_def(item_id)
+    return bool(item_def and item_def.get("stackable"))
+
+
+def is_equipment_item(item_id):
+    item_def = get_item_def(item_id)
+    return bool(item_def and item_def.get("category") == ITEM_CATEGORY_EQUIPMENT)
+
+
+def get_equipment_slot(item_id):
+    item_def = get_item_def(item_id)
+    if item_def is None:
+        return None
+    return item_def.get("equipment_slot")
+
+
+def clone_stack(stack):
+    if stack is None:
+        return None
+    return {"id": stack["id"], "quantity": int(stack["quantity"])}
 
 
 class Inventory:
     def __init__(self, size=28):
         self.slots = [None] * size
-        self.skill_xp = {s: 0 for s in SKILLS}
+        self.equipment = EquipmentInventory()
 
-    # ------------------------------------------------------------------
-    # Item methods
-    # ------------------------------------------------------------------
+    def slot_count(self):
+        return len(self.slots)
+
+    def iter_slot_keys(self):
+        return list(range(len(self.slots)))
+
+    def get_slot(self, slot_index):
+        if 0 <= slot_index < len(self.slots):
+            return self.slots[slot_index]
+        return None
+
+    def set_slot(self, slot_index, stack):
+        if 0 <= slot_index < len(self.slots):
+            self.slots[slot_index] = clone_stack(stack)
+            return True
+        return False
+
+    def find_first_free_slot(self):
+        for i, slot in enumerate(self.slots):
+            if slot is None:
+                return i
+        return None
+
+    def can_place(self, slot_index, stack):
+        if stack is None:
+            return False
+        if not 0 <= slot_index < len(self.slots):
+            return False
+        target = self.slots[slot_index]
+        if target is None:
+            return True
+        return target["id"] == stack["id"] and is_stackable(stack["id"])
+
+    def place_slot(self, slot_index, stack):
+        if not self.can_place(slot_index, stack):
+            return False
+        target = self.slots[slot_index]
+        incoming = clone_stack(stack)
+        if target is None:
+            self.slots[slot_index] = incoming
+        else:
+            target["quantity"] += incoming["quantity"]
+        return True
+
+    def take_slot(self, slot_index):
+        if not 0 <= slot_index < len(self.slots):
+            return None
+        stack = self.slots[slot_index]
+        self.slots[slot_index] = None
+        return clone_stack(stack)
+
+    def swap_slot(self, a, b):
+        if not (0 <= a < len(self.slots) and 0 <= b < len(self.slots)):
+            return False
+        self.slots[a], self.slots[b] = self.slots[b], self.slots[a]
+        return True
+
+    def move_slot(self, a, b):
+        return move_item(self, a, self, b)
 
     def add_item(self, item_id, qty=1):
-        """Stack onto existing slot if stackable, else find free slot.
-        Returns True on success, False if full."""
-        item = ITEMS.get(item_id)
-        if item is None:
+        item_def = get_item_def(item_id)
+        if item_def is None or qty <= 0:
             return False
 
-        if item["stackable"]:
+        if item_def["stackable"]:
             for slot in self.slots:
                 if slot and slot["id"] == item_id:
                     slot["quantity"] += qty
                     return True
 
-        # Find first free slot
-        for i, slot in enumerate(self.slots):
-            if slot is None:
-                self.slots[i] = {"id": item_id, "quantity": qty}
-                return True
-
-        return False  # inventory full
+        free_slot = self.find_first_free_slot()
+        if free_slot is None:
+            return False
+        self.slots[free_slot] = {"id": item_id, "quantity": qty}
+        return True
 
     def remove_item(self, item_id, qty=1):
-        """Decrement quantity; clear slot if reaches 0.
-        Returns True if removed, False if not enough."""
         total = self.count_item(item_id)
         if total < qty:
             return False
@@ -72,48 +172,106 @@ class Inventory:
         return True
 
     def count_item(self, item_id):
-        return sum(
-            s["quantity"] for s in self.slots if s and s["id"] == item_id
-        )
-
-    def move_slot(self, a, b):
-        self.slots[a], self.slots[b] = self.slots[b], self.slots[a]
+        return sum(slot["quantity"] for slot in self.slots if slot and slot["id"] == item_id)
 
     def get_free_slots(self):
-        return sum(1 for s in self.slots if s is None)
+        return sum(1 for slot in self.slots if slot is None)
 
     def is_full(self):
         return self.get_free_slots() == 0
 
-    # ------------------------------------------------------------------
-    # Skill methods
-    # ------------------------------------------------------------------
-
-    def add_xp(self, skill, amount):
-        if skill in self.skill_xp:
-            old_level = xp_to_level(self.skill_xp[skill])
-            self.skill_xp[skill] += amount
-            new_level = xp_to_level(self.skill_xp[skill])
-            return new_level - old_level  # levels gained
-        return 0
-
-    def get_level(self, skill):
-        return xp_to_level(self.skill_xp.get(skill, 0))
-
-    def get_xp_progress(self, skill):
-        """Returns (xp_into_level, XP_PER_LEVEL)."""
-        xp = self.skill_xp.get(skill, 0)
-        return xp_into_level(xp), XP_PER_LEVEL
-
-    # ------------------------------------------------------------------
-    # Serialization
-    # ------------------------------------------------------------------
-
     def to_dict(self):
-        return {"slots": self.slots[:]}
+        return {"slots": copy.deepcopy(self.slots)}
 
     def from_dict(self, data):
+        self.slots = [None] * len(self.slots)
         slots = data.get("slots", [])
-        for i, s in enumerate(slots):
+        for i, stack in enumerate(slots):
             if i < len(self.slots):
-                self.slots[i] = s
+                self.slots[i] = clone_stack(stack)
+
+
+class EquipmentInventory:
+    def __init__(self):
+        self.slots = {slot_name: None for slot_name in EQUIPMENT_SLOTS}
+
+    def iter_slot_keys(self):
+        return list(EQUIPMENT_SLOTS.keys())
+
+    def get_slot(self, slot_name):
+        return self.slots.get(slot_name)
+
+    def set_slot(self, slot_name, stack):
+        if slot_name not in self.slots:
+            return False
+        self.slots[slot_name] = clone_stack(stack)
+        return True
+
+    def can_place(self, slot_name, stack):
+        if stack is None or slot_name not in self.slots:
+            return False
+        return get_equipment_slot(stack["id"]) == slot_name
+
+    def place_slot(self, slot_name, stack):
+        if not self.can_place(slot_name, stack):
+            return False
+        self.slots[slot_name] = clone_stack(stack)
+        return True
+
+    def take_slot(self, slot_name):
+        if slot_name not in self.slots:
+            return None
+        stack = self.slots[slot_name]
+        self.slots[slot_name] = None
+        return clone_stack(stack)
+
+    def swap_slot(self, a, b):
+        if a not in self.slots or b not in self.slots:
+            return False
+        stack_a = self.slots[a]
+        stack_b = self.slots[b]
+        if stack_b and not self.can_place(a, stack_b):
+            return False
+        if stack_a and not self.can_place(b, stack_a):
+            return False
+        self.slots[a], self.slots[b] = stack_b, stack_a
+        return True
+
+    def move_slot(self, a, b):
+        return move_item(self, a, self, b)
+
+
+def move_item(source_container, source_slot, target_container, target_slot):
+    source_stack = source_container.get_slot(source_slot)
+    if source_stack is None:
+        return False
+
+    if source_container is target_container and source_slot == target_slot:
+        return True
+
+    source_stack = clone_stack(source_stack)
+    target_stack = clone_stack(target_container.get_slot(target_slot))
+
+    if target_stack and target_stack["id"] == source_stack["id"] and is_stackable(source_stack["id"]):
+        if not target_container.can_place(target_slot, source_stack):
+            return False
+        source_container.take_slot(source_slot)
+        target_container.place_slot(target_slot, source_stack)
+        return True
+
+    if not target_container.can_place(target_slot, source_stack) and target_stack is None:
+        return False
+
+    if target_stack is None:
+        source_container.take_slot(source_slot)
+        target_container.set_slot(target_slot, source_stack)
+        return True
+
+    if not source_container.can_place(source_slot, target_stack):
+        return False
+    if not target_container.can_place(target_slot, source_stack):
+        return False
+
+    source_container.set_slot(source_slot, target_stack)
+    target_container.set_slot(target_slot, source_stack)
+    return True
