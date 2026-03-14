@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(# Use strings on the DLL to find any embedded source-level comments or function names strings /c/Panda3D-1.10.16-x64/bin/libpandabullet.dll)"
+    ]
+  }
+}
