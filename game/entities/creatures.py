@@ -18,6 +18,7 @@ from game.systems.combat import (
     stop_distance_for,
     resolve_attack,
 )
+from game.systems.balance import creature_runtime_stats
 from game.systems.stats import StatManager
 
 # AI Balance Constants
@@ -119,8 +120,7 @@ class Creature:
         self._build_debug_ghost()
 
     def _apply_data_stats(self):
-        stats_data = self.data.get("stats", {})
-        for k, v in stats_data.items():
+        for k, v in creature_runtime_stats(self.data).items():
             self.stats.set_base_stat(k, v)
 
     @property
@@ -130,6 +130,9 @@ class Creature:
     @property
     def is_hostile(self):
         return self.data.get("ai_type", "hostile") == "hostile"
+
+    def get_level(self):
+        return int(self.data.get("level", 1))
 
     def _build_visual(self):
         v = self.data.get("visuals", {})
@@ -220,6 +223,8 @@ class Creature:
 
         if self.dead:
             if self._despawned:
+                if getattr(self, "_disable_respawn", False):
+                    return
                 self._respawn_timer += dt
                 if self._respawn_timer >= HOSTILE_RESPAWN_TIME:
                     self._respawn()
@@ -444,6 +449,7 @@ class Creature:
         else:
             outcome = resolve_attack(self, target, "melee", profile["damage"])
             _log_combat(f"creature melee {outcome['type']} attacker={self.get_target_name()} damage={outcome['damage']}")
+            _report_combat_event(self, target, outcome, "melee")
             if outcome["type"] != "miss" and outcome["type"] != "parry":
                 target.take_damage(outcome["damage"], hud, attacker=self)
         self._attack_cooldown = profile["speed"]
@@ -535,7 +541,7 @@ class Creature:
             
             # Notify QuestManager
             import builtins
-            app = builtins.base
+            app = getattr(builtins, "base", None)
             if app and hasattr(app, "quest_manager"):
                 app.quest_manager.notify_action("kill", self.creature_id)
                 
@@ -627,7 +633,7 @@ class Creature:
         if c_type:
             from game.world.resources import AnimalCarcass
             import builtins
-            app = builtins.base
+            app = getattr(builtins, "base", None)
             if app and app._active_level:
                 carcass = AnimalCarcass(self.render, self.bullet_world, self.pos, animal_type=c_type)
                 app._active_level.resources.append(carcass)
@@ -735,6 +741,7 @@ class Creature:
     def _on_projectile_hit(self, target, base_damage, hud):
         outcome = resolve_attack(self, target, "ranged", base_damage)
         _log_combat(f"creature ranged {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
+        _report_combat_event(self, target, outcome, "ranged")
         if outcome["type"] != "miss" and outcome["type"] != "parry":
             target.take_damage(outcome["damage"], hud, attacker=self)
 
@@ -746,5 +753,22 @@ def _log_combat(message):
         app.hud.add_combat_log(message)
     if DEBUG_COMBAT_LOGS:
         print(f"[combat] {message}")
+
+
+def _report_combat_event(attacker, defender, outcome, style):
+    import builtins
+    app = getattr(builtins, "base", None)
+    if app is not None and hasattr(app, "hud"):
+        app.hud.record_combat_event(
+            {
+                "attacker": attacker.get_target_name(),
+                "defender": defender.get_target_name(),
+                "style": style,
+                "result": outcome.get("type", "hit"),
+                "damage": outcome.get("damage", 0.0),
+                "base_damage": outcome.get("base_damage", 0.0),
+                "mitigated": outcome.get("mitigated", 0.0),
+            }
+        )
 
 load_creature_defs()

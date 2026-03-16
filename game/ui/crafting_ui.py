@@ -6,7 +6,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText, Direct
 from direct.gui import DirectGuiGlobals as DGG
 from panda3d.core import TextNode
 
-from game.ui.widgets import DraggableWindow, TOOLTIP_MANAGER, create_item_icon
+from game.ui.widgets import DraggableWindow, TOOLTIP_MANAGER, create_item_icon, create_text_button
 from game.systems.inventory import build_item_tooltip, get_item_def, get_item_name
 import game.services.crafting as crafting_svc
 
@@ -155,18 +155,20 @@ class CraftingUI(DraggableWindow):
         # Craft Button
         can_use_station = self._can_access_recipe(recipe)
         can_craft = can_craft_lvl and has_mats and can_use_station
-        craft_button = DirectButton(
-            parent=parent,
-            text="Craft" if can_use_station else "Need Station",
+        craft_button = create_text_button(
+            parent,
+            "Craft" if can_use_station else "Need Station",
+            (0.45, 0, y),
+            self._do_craft,
             scale=0.04,
-            pos=(0.45, 0, y),
-            frameSize=(-2, 2, -0.6, 1.2),
-            frameColor=(0.2, 0.5, 0.2, 1) if can_craft else (0.3, 0.3, 0.3, 1),
+            min_half_width=1.3,
+            max_half_width=None,
+            padding=0.5,
+            frame_color=(0.2, 0.5, 0.2, 1) if can_craft else (0.3, 0.3, 0.3, 1),
             text_fg=(1, 1, 1, 1) if can_craft else (0.6, 0.6, 0.6, 1),
-            command=self._do_craft,
-            extraArgs=[rid, recipe],
-            state=DGG.NORMAL if can_craft else DGG.DISABLED
+            extra_args=[rid, recipe],
         )
+        craft_button["state"] = DGG.NORMAL if can_craft else DGG.DISABLED
         TOOLTIP_MANAGER.bind(craft_button, lambda recipe=recipe: self._recipe_tooltip(recipe))
 
     def _do_craft(self, rid, recipe):

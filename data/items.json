@@ -98,7 +98,7 @@
     "value": 30,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "sword"},
-    "stats": {"melee_damage": 22.0, "parry_chance": 0.05}
+    "stats": {"melee_damage": 6.0, "parry_chance": 0.03}
   },
   "oak_shield": {
     "name": "Oak Shield",
@@ -109,7 +109,7 @@
     "value": 24,
     "equipment_slot": "offhand",
     "icon_spec": {"kind": "shield"},
-    "stats": {"armor": 8.0, "block_chance": 0.15}
+    "stats": {"armor": 6.0, "block_chance": 0.08}
   },
   "cloth_hood": {
     "name": "Cloth Hood",
@@ -120,7 +120,7 @@
     "value": 18,
     "equipment_slot": "head",
     "icon_spec": {"kind": "hood"},
-    "stats": {"armor": 4.0, "evasion": 0.02}
+    "stats": {"armor": 2.0, "evasion": 0.02}
   },
   "traveler_tunic": {
     "name": "Traveler Tunic",
@@ -131,7 +131,7 @@
     "value": 28,
     "equipment_slot": "chest",
     "icon_spec": {"kind": "armor"},
-    "stats": {"armor": 12.0, "evasion": 0.03}
+    "stats": {"armor": 5.0, "evasion": 0.02}
   },
   "canvas_pants": {
     "name": "Canvas Pants",
@@ -142,7 +142,7 @@
     "value": 22,
     "equipment_slot": "legs",
     "icon_spec": {"kind": "legs"},
-    "stats": {"armor": 6.0, "movement_speed": 0.5}
+    "stats": {"armor": 3.0, "movement_speed": 0.4}
   },
   "shortbow": {
     "name": "Shortbow",
@@ -153,7 +153,7 @@
     "value": 25,
     "equipment_slot": "ranged",
     "icon_spec": {"kind": "bow"},
-    "stats": {"ranged_damage": 10.0, "crit_chance": 0.05}
+    "stats": {"ranged_damage": 5.0, "crit_chance": 0.04}
   },
   "light_crossbow": {
     "name": "Light Crossbow",
@@ -164,7 +164,7 @@
     "value": 35,
     "equipment_slot": "ranged",
     "icon_spec": {"kind": "crossbow"},
-    "stats": {"ranged_damage": 14.0, "crit_chance": 0.08, "crit_mult": 0.5}
+    "stats": {"ranged_damage": 8.0, "crit_chance": 0.06, "crit_mult": 0.35}
   },
   "spellbook": {
     "name": "Spellbook",
@@ -175,7 +175,7 @@
     "value": 40,
     "equipment_slot": "offhand",
     "icon_spec": {"kind": "book"},
-    "stats": {"magic_damage": 4.0, "max_health": 15.0}
+    "stats": {"magic_damage": 3.0, "max_health": 8.0}
   },
   "wooden_staff": {
     "name": "Wooden Staff",
@@ -187,7 +187,7 @@
     "value": 20,
     "equipment_slot": "ranged",
     "icon_spec": {"kind": "staff"},
-    "stats": {"magic_damage": 12.0, "parry_chance": 0.03}
+    "stats": {"magic_damage": 6.0, "parry_chance": 0.02}
   },
   "iron_mace": {
     "name": "Iron Mace",
@@ -198,7 +198,7 @@
     "value": 28,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "mace"},
-    "stats": {"melee_damage": 16.0, "crit_mult": 0.5}
+    "stats": {"melee_damage": 7.0, "crit_mult": 0.35}
   },
   "hand_axe": {
     "name": "Hand Axe",
@@ -209,7 +209,7 @@
     "value": 22,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "axe"},
-    "stats": {"melee_damage": 14.0, "crit_chance": 0.08}
+    "stats": {"melee_damage": 6.0, "crit_chance": 0.06}
   },
   "battle_axe": {
     "name": "Battle Axe",
@@ -220,7 +220,7 @@
     "value": 45,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "battle_axe"},
-    "stats": {"melee_damage": 22.0, "crit_chance": 0.1, "parry_chance": 0.02}
+    "stats": {"melee_damage": 10.0, "crit_chance": 0.08, "parry_chance": 0.02}
   },
   "greatsword": {
     "name": "Greatsword",
@@ -231,7 +231,7 @@
     "value": 50,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "sword"},
-    "stats": {"melee_damage": 35.0, "parry_chance": 0.08}
+    "stats": {"melee_damage": 12.0, "parry_chance": 0.04}
   },
   "magic_wand": {
     "name": "Magic Wand",
@@ -243,7 +243,7 @@
     "value": 30,
     "equipment_slot": "ranged",
     "icon_spec": {"kind": "wand"},
-    "stats": {"magic_damage": 15.0, "crit_chance": 0.05}
+    "stats": {"magic_damage": 8.0, "crit_chance": 0.05}
   },
   "iron_dagger": {
     "name": "Iron Dagger",
@@ -254,6 +254,6 @@
     "value": 15,
     "equipment_slot": "weapon",
     "icon_spec": {"kind": "dagger"},
-    "stats": {"melee_damage": 8.0, "crit_chance": 0.15, "evasion": 0.02}
+    "stats": {"melee_damage": 4.0, "crit_chance": 0.12, "evasion": 0.02}
   }
 }

@@ -11,6 +11,7 @@ class SelectionManager:
         self.selected_target = None
         self.tab_target_range = 96.0
         self.tab_target_min_dot = 0.45
+        self.click_target_radius = 0.08
 
     def set_selected_target(self, target):
         if self.selected_target is target:
@@ -53,7 +54,7 @@ class SelectionManager:
             dx = screen_pt.x - mouse.x
             dy = screen_pt.y - mouse.y
             score = dx * dx + dy * dy
-            if score > 0.03:
+            if score > self.click_target_radius:
                 continue
             if best_score is None or score < best_score:
                 best = hostile

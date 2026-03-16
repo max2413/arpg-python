@@ -1,6 +1,16 @@
 """Stat calculation and aggregation for entities."""
 
 from game.systems.inventory import get_item_def
+from game.systems.balance import (
+    HP_BASE,
+    block_bonus,
+    crit_bonus,
+    damage_reduction,
+    defense_stat,
+    parry_bonus,
+    player_max_hp,
+    style_damage_bonus,
+)
 
 class StatManager:
     def __init__(self, entity, skills=None, inventory=None):
@@ -10,11 +20,11 @@ class StatManager:
         
         # Base stats
         self._base_stats = {
-            "max_health": 100.0,
+            "max_health": float(HP_BASE),
             "health_regen": 0.0,
-            "melee_damage": 18.0,
-            "ranged_damage": 14.0,
-            "magic_damage": 10.0,
+            "melee_damage": 5.0,
+            "ranged_damage": 5.0,
+            "magic_damage": 5.0,
             "armor": 0.0,
             "evasion": 0.05,
             "accuracy": 1.0,
@@ -49,17 +59,17 @@ class StatManager:
             magic_lvl = self.skills.get_level("Magic")
             def_lvl = self.skills.get_level("Defense")
 
-            flat_mods["melee_damage"] += (melee_lvl - 1) * 1.5
-            flat_mods["parry_chance"] += (melee_lvl - 1) * 0.005
-            
-            flat_mods["ranged_damage"] += (ranged_lvl - 1) * 1.2
-            flat_mods["crit_chance"] += (ranged_lvl - 1) * 0.005
-            
-            flat_mods["magic_damage"] += (magic_lvl - 1) * 1.8
-            
-            flat_mods["max_health"] += (def_lvl - 1) * 10.0
-            flat_mods["armor"] += (def_lvl - 1) * 0.5
-            flat_mods["block_chance"] += (def_lvl - 1) * 0.005
+            flat_mods["melee_damage"] += style_damage_bonus(melee_lvl, "melee") - self._base_stats["melee_damage"]
+            flat_mods["parry_chance"] += parry_bonus(melee_lvl)
+
+            flat_mods["ranged_damage"] += style_damage_bonus(ranged_lvl, "ranged") - self._base_stats["ranged_damage"]
+            flat_mods["crit_chance"] += crit_bonus(ranged_lvl)
+
+            flat_mods["magic_damage"] += style_damage_bonus(magic_lvl, "magic") - self._base_stats["magic_damage"]
+
+            flat_mods["max_health"] += player_max_hp(def_lvl) - self._base_stats["max_health"]
+            flat_mods["armor"] += defense_stat(def_lvl)
+            flat_mods["block_chance"] += block_bonus(def_lvl)
 
         # 3. Apply Gear Bonuses
         if self.inventory is not None and hasattr(self.inventory, "equipment"):
@@ -81,6 +91,9 @@ class StatManager:
         for k in self._base_stats:
             val = (self._base_stats[k] + flat_mods[k]) * mult_mods[k]
             self.stats[k] = val
+
+        armor = self.stats.get("armor", 0.0)
+        self.stats["damage_reduction"] = damage_reduction(armor)
 
         # Handle health capping if max_health drops
         if hasattr(self.entity, "health") and self.entity.health > self.stats["max_health"]:

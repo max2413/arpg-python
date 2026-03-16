@@ -290,6 +290,11 @@ class Player:
     def get_target_name(self):
         return "Player"
 
+    def get_combat_level(self):
+        if hasattr(self, "stats") and self.stats.skills:
+            return self.stats.skills.get_combat_level()
+        return 1
+
     def is_moving(self):
         return self._keys["w"] or self._keys["s"]
 
@@ -390,6 +395,7 @@ class Player:
             xp_style = profile.get("xp_style", self._auto_attack_style)
             outcome = resolve_attack(self, target, xp_style, profile["damage"])
             _log_combat(f"player melee {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
+            _report_combat_event(self, target, outcome, xp_style)
             if outcome["type"] != "miss" and outcome["type"] != "parry":
                 if target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style):
                     # Target died, maybe bonus XP?
@@ -458,6 +464,7 @@ class Player:
         xp_style = profile.get("xp_style", "ranged") if profile else "ranged"
         outcome = resolve_attack(self, target, xp_style, base_damage)
         _log_combat(f"player ranged {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
+        _report_combat_event(self, target, outcome, xp_style)
         if outcome["type"] != "miss" and outcome["type"] != "parry":
             target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style)
             self.grant_combat_xp(xp_style, outcome["damage"])
@@ -470,3 +477,20 @@ def _log_combat(message):
         app.hud.add_combat_log(message)
     if DEBUG_COMBAT_LOGS:
         print(f"[combat] {message}")
+
+
+def _report_combat_event(attacker, defender, outcome, style):
+    import builtins
+    app = getattr(builtins, "base", None)
+    if app is not None and hasattr(app, "hud"):
+        app.hud.record_combat_event(
+            {
+                "attacker": attacker.get_target_name(),
+                "defender": defender.get_target_name(),
+                "style": style,
+                "result": outcome.get("type", "hit"),
+                "damage": outcome.get("damage", 0.0),
+                "base_damage": outcome.get("base_damage", 0.0),
+                "mitigated": outcome.get("mitigated", 0.0),
+            }
+        )

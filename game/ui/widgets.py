@@ -30,6 +30,59 @@ def _rect(parent, left, right, bottom, top, color):
     )
 
 
+def estimate_button_half_width(text, text_scale=0.04, padding=0.55, min_half_width=1.0, max_half_width=None):
+    text = str(text or "")
+    measurer = TextNode("button_measure")
+    measurer.setText(text)
+    raw_width = max(1.0, measurer.getWidth())
+    # DirectGUI frameSize is expressed in the button's local space, so use the
+    # text node's local width directly and add generous horizontal padding.
+    width = raw_width * 0.6 + padding
+    width = max(min_half_width, width)
+    if max_half_width is not None:
+        width = min(max_half_width, width)
+    return width
+
+
+def create_text_button(
+    parent,
+    text,
+    pos,
+    command,
+    *,
+    scale=0.04,
+    min_half_width=1.0,
+    max_half_width=None,
+    padding=0.55,
+    frame_color=(0.24, 0.24, 0.26, 1),
+    text_fg=(1, 1, 1, 1),
+    extra_args=None,
+    relief=DGG.RAISED,
+    border_width=(0.01, 0.01),
+):
+    half_width = estimate_button_half_width(
+        text,
+        text_scale=scale,
+        padding=padding,
+        min_half_width=min_half_width,
+        max_half_width=max_half_width,
+    )
+    return DirectButton(
+        parent=parent,
+        text=text,
+        scale=scale,
+        pos=pos,
+        frameSize=(-half_width, half_width, -0.6, 1.1),
+        frameColor=frame_color,
+        text_fg=text_fg,
+        command=command,
+        extraArgs=extra_args or [],
+        relief=relief,
+        borderWidth=border_width,
+        textMayChange=True,
+    )
+
+
 ICON_TEMPLATES = {
     "logs": [
         (0.14, 0.38, 0.18, 0.78, 1.0),

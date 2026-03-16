@@ -9,7 +9,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
 
 from game.entities.npc import InteractableNpc, build_humanoid_npc
 from game.systems.inventory import get_item_def
-from game.ui.widgets import DraggableWindow, create_item_icon
+from game.ui.widgets import DraggableWindow, create_item_icon, create_text_button
 
 VENDOR_PROXIMITY = 5.0
 VENDOR_PATROL_RADIUS = 12.0
@@ -109,23 +109,27 @@ class Vendor(InteractableNpc):
             align=TextNode.ACenter,
             mayChange=True,
         )
-        self._tab_buy_btn = DirectButton(
-            parent=body,
-            text="Buy",
+        self._tab_buy_btn = create_text_button(
+            body,
+            "Buy",
+            (-0.15, 0, 0.42),
+            self._show_buy_tab,
             scale=0.05,
-            pos=(-0.15, 0, 0.42),
-            command=self._show_buy_tab,
-            frameColor=(0.3, 0.5, 0.3, 1),
-            text_fg=(1, 1, 1, 1),
+            min_half_width=1.0,
+            max_half_width=None,
+            padding=0.45,
+            frame_color=(0.3, 0.5, 0.3, 1),
         )
-        self._tab_sell_btn = DirectButton(
-            parent=body,
-            text="Sell",
+        self._tab_sell_btn = create_text_button(
+            body,
+            "Sell",
+            (0.15, 0, 0.42),
+            self._show_sell_tab,
             scale=0.05,
-            pos=(0.15, 0, 0.42),
-            command=self._show_sell_tab,
-            frameColor=(0.3, 0.3, 0.5, 1),
-            text_fg=(1, 1, 1, 1),
+            min_half_width=1.0,
+            max_half_width=None,
+            padding=0.45,
+            frame_color=(0.3, 0.3, 0.5, 1),
         )
         self._tab_content = DirectFrame(
             parent=body,
@@ -180,15 +184,17 @@ class Vendor(InteractableNpc):
                 align=TextNode.ALeft,
             ))
             for qi, qty in enumerate((1, 5, 10)):
-                self._tab_widgets.append(DirectButton(
-                    parent=self._tab_content,
-                    text=f"Buy {qty}",
+                self._tab_widgets.append(create_text_button(
+                    self._tab_content,
+                    f"Buy {qty}",
+                    (0.34 + qi * 0.15, 0, y - 0.015),
+                    self._buy,
                     scale=0.032,
-                    pos=(0.34 + qi * 0.12, 0, y - 0.015),
-                    command=self._buy,
-                    extraArgs=[item_id, buy_price, qty],
-                    frameColor=(0.2, 0.5, 0.2, 1),
-                    text_fg=(1, 1, 1, 1),
+                    min_half_width=1.0,
+                    max_half_width=None,
+                    padding=0.45,
+                    frame_color=(0.2, 0.5, 0.2, 1),
+                    extra_args=[item_id, buy_price, qty],
                 ))
 
     def _show_sell_tab(self):
@@ -223,15 +229,17 @@ class Vendor(InteractableNpc):
                 align=TextNode.ALeft,
             ))
             for qi, sell_qty in enumerate((1, 5, 10)):
-                self._tab_widgets.append(DirectButton(
-                    parent=self._tab_content,
-                    text=f"Sell {sell_qty}",
+                self._tab_widgets.append(create_text_button(
+                    self._tab_content,
+                    f"Sell {sell_qty}",
+                    (0.34 + qi * 0.15, 0, y - 0.015),
+                    self._sell,
                     scale=0.032,
-                    pos=(0.34 + qi * 0.12, 0, y - 0.015),
-                    command=self._sell,
-                    extraArgs=[slot["id"], sell_price, sell_qty],
-                    frameColor=(0.2, 0.2, 0.5, 1),
-                    text_fg=(1, 1, 1, 1),
+                    min_half_width=1.0,
+                    max_half_width=None,
+                    padding=0.45,
+                    frame_color=(0.2, 0.2, 0.5, 1),
+                    extra_args=[slot["id"], sell_price, sell_qty],
                 ))
             y -= 0.1
             if y < -0.56:

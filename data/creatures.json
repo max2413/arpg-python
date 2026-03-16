@@ -1,14 +1,20 @@
 {
   "scout": {
     "name": "Scout",
+    "level": 5,
+    "role": "standard",
+    "scaling": {
+      "health_factor": 0.45,
+      "armor_factor": 0.9,
+      "damage_factor": 0.55,
+      "evasion_factor": 0.85,
+      "crit_factor": 0.8,
+      "block_factor": 0.5,
+      "parry_factor": 0.6
+    },
     "xp_reward": 16,
     "model_type": "humanoid",
     "ai_type": "hostile",
-    "stats": {
-      "max_health": 40.0,
-      "melee_damage": 8.0,
-      "evasion": 0.05
-    },
     "visuals": {
       "skin_color": [0.9, 0.78, 0.62, 1.0],
       "tunic_color": [0.68, 0.24, 0.12, 1.0],
@@ -21,14 +27,19 @@
   },
   "ranger": {
     "name": "Ranger",
+    "level": 6,
+    "role": "ranged",
+    "scaling": {
+      "health_factor": 0.55,
+      "armor_factor": 0.9,
+      "damage_factor": 0.6,
+      "evasion_factor": 1.05,
+      "accuracy_factor": 1.05,
+      "crit_factor": 1.1
+    },
     "xp_reward": 18,
     "model_type": "humanoid",
     "ai_type": "hostile",
-    "stats": {
-      "max_health": 30.0,
-      "ranged_damage": 6.0,
-      "evasion": 0.05
-    },
     "visuals": {
       "skin_color": [0.82, 0.88, 0.6, 1.0],
       "tunic_color": [0.24, 0.48, 0.18, 1.0],
@@ -44,14 +55,18 @@
   },
   "wolf": {
     "name": "Wolf",
+    "level": 8,
+    "role": "nimble",
+    "scaling": {
+      "health_factor": 0.42,
+      "armor_factor": 1.0,
+      "damage_factor": 0.6,
+      "evasion_factor": 1.15,
+      "crit_factor": 1.05
+    },
     "xp_reward": 24,
     "model_type": "quadruped",
     "ai_type": "hostile",
-    "stats": {
-      "max_health": 50.0,
-      "melee_damage": 12.0,
-      "evasion": 0.15
-    },
     "visuals": {
       "color": [0.35, 0.35, 0.38, 1.0],
       "size": [0.84, 1.68, 0.84],
@@ -67,13 +82,15 @@
   },
   "deer": {
     "name": "Deer",
+    "level": 2,
+    "role": "passive",
+    "scaling": {
+      "health_factor": 0.4,
+      "evasion_factor": 1.25
+    },
     "xp_reward": 12,
     "model_type": "quadruped",
     "ai_type": "passive",
-    "stats": {
-      "max_health": 25.0,
-      "evasion": 0.25
-    },
     "visuals": {
       "color": [0.6, 0.45, 0.3, 1.0],
       "size": [0.7, 1.4, 0.9],

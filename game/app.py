@@ -50,6 +50,8 @@ class Game(ShowBase):
         self._spawn_point = Vec3(0, 0, PLAYER_TEST_DROP_HEIGHT)
         self._collision_debug_enabled = False
         self._collision_debug_np = None
+        self._benchmark_target = None
+        self._benchmark_started = None
 
         self.bullet_world = BulletWorld()
         self.bullet_world.setGravity(Vec3(0, 0, -25))
@@ -86,6 +88,7 @@ class Game(ShowBase):
         self.accept("k", self.hud.toggle_skills)
         self.accept("l", self.hud.toggle_game_log)
         self.accept("j", self.hud.toggle_combat_log)
+        self.accept("f4", self.hud.toggle_combat_debug)
         self.accept("f1", self.dev_menu.toggle)
         self.accept("escape", self._on_escape)
         self.accept("e", self._on_e_pressed)
@@ -237,6 +240,8 @@ class Game(ShowBase):
 
     def _load_level(self, level_id, entry_key, force_regenerate=False):
         self.selection_manager.set_selected_target(None)
+        self._benchmark_target = None
+        self._benchmark_started = None
         self.player.clear_auto_attack()
         self.player._clear_projectiles()
         self._close_level_ui()
@@ -253,6 +258,33 @@ class Game(ShowBase):
         self.level_manager.clear_saved_overworld()
         self._close_pause()
         self._load_level("overworld", "default", force_regenerate=True)
+
+    def start_benchmark(self, target, expected_level=None):
+        self._benchmark_target = target
+        self._benchmark_started = globalClock.getFrameTime()  # noqa: F821 - Panda3D global
+        target_level = target.get_level() if hasattr(target, "get_level") else expected_level
+        self.hud.set_benchmark_summary(
+            f"Benchmark active vs {target.get_target_name()} Lv {target_level}"
+        )
+
+    def _update_benchmark(self):
+        if self._benchmark_target is None:
+            return
+        if self._benchmark_started is None:
+            self._benchmark_started = globalClock.getFrameTime()  # noqa: F821 - Panda3D global
+        elapsed = max(0.0, globalClock.getFrameTime() - self._benchmark_started)  # noqa: F821 - Panda3D global
+        if self.player.dead:
+            name = self._benchmark_target.get_target_name() if self._benchmark_target is not None else "target"
+            self.hud.set_benchmark_summary(f"Failed vs {name} after {elapsed:.1f}s")
+            self._benchmark_target = None
+            self._benchmark_started = None
+            return
+        if getattr(self._benchmark_target, "dead", False):
+            self.hud.set_benchmark_summary(
+                f"Victory vs {self._benchmark_target.get_target_name()} in {elapsed:.1f}s"
+            )
+            self._benchmark_target = None
+            self._benchmark_started = None
 
     def _on_e_pressed(self):
         if self._paused or self.player.dead:
@@ -329,9 +361,11 @@ class Game(ShowBase):
 
         self.combat_manager.update(dt)
         self.selection_manager.update()
+        self._update_benchmark()
 
         self.player.update_projectiles(dt, self.hud)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
+        self.hud.refresh_player_level(self.skills.get_combat_level())
 
         target = self.selection_manager.selected_target
         if target is not None:
@@ -340,6 +374,8 @@ class Game(ShowBase):
                 target.get_target_name(),
                 target.health,
                 target.max_health,
+                target.get_level() if hasattr(target, "get_level") else None,
+                self.skills.get_combat_level(),
             )
             self.hud.refresh_range_indicators(
                 distance <= self.player.melee_ability_range,
@@ -348,6 +384,8 @@ class Game(ShowBase):
         else:
             self.hud.clear_target()
             self.hud.clear_range_indicators()
+
+        self.hud.refresh_combat_debug(self.player, target)
 
         if self.player.dead:
             if not self._was_player_dead:

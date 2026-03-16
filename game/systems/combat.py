@@ -3,6 +3,7 @@
 import random
 from panda3d.core import Vec3
 from game.world.geometry import make_sphere_approx
+from game.systems.balance import damage_reduction
 
 
 def make_combat_profile(
@@ -63,20 +64,42 @@ def resolve_attack(attacker, defender, attack_style, base_damage):
     # 1. Hit Roll
     hit_chance = max(0.05, min(0.95, att_acc - def_eva))
     if rng.random() > hit_chance:
-        return {"type": "miss", "damage": 0.0}
+        return {
+            "type": "miss",
+            "damage": 0.0,
+            "base_damage": base_damage,
+            "mitigated": 0.0,
+            "attack_style": attack_style,
+            "hit_chance": hit_chance,
+        }
         
     # 2. Parry Roll (Melee Only)
     if attack_style == "melee":
         def_parry = defender.stats.get("parry_chance") if hasattr(defender, "stats") else 0.0
         if def_parry > 0 and rng.random() < def_parry:
-            return {"type": "parry", "damage": 0.0}
+            return {
+                "type": "parry",
+                "damage": 0.0,
+                "base_damage": base_damage,
+                "mitigated": base_damage,
+                "attack_style": attack_style,
+                "hit_chance": hit_chance,
+            }
             
     # 3. Block Roll
     def_block = defender.stats.get("block_chance") if hasattr(defender, "stats") else 0.0
     if def_block > 0 and rng.random() < def_block:
         # Block mitigates 70% of damage
         mitigated_damage = base_damage * 0.3
-        return {"type": "block", "damage": max(1.0, mitigated_damage)}
+        final_damage = max(1.0, mitigated_damage)
+        return {
+            "type": "block",
+            "damage": final_damage,
+            "base_damage": base_damage,
+            "mitigated": max(0.0, base_damage - final_damage),
+            "attack_style": attack_style,
+            "hit_chance": hit_chance,
+        }
         
     # 4. Crit Roll
     att_crit = attacker.stats.get("crit_chance") if hasattr(attacker, "stats") else 0.05
@@ -87,11 +110,17 @@ def resolve_attack(attacker, defender, attack_style, base_damage):
         
     # 5. Armor Mitigation
     def_armor = defender.stats.get("armor") if hasattr(defender, "stats") else 0.0
-    final_damage = max(1.0, base_damage - def_armor)
+    reduction = damage_reduction(def_armor)
+    final_damage = max(1.0, base_damage * (1.0 - reduction))
     
     return {
         "type": "crit" if is_crit else "hit",
-        "damage": final_damage
+        "damage": final_damage,
+        "base_damage": base_damage,
+        "mitigated": max(0.0, base_damage - final_damage),
+        "armor_reduction": reduction,
+        "attack_style": attack_style,
+        "hit_chance": hit_chance,
     }
 
 

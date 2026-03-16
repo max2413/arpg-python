@@ -1,40 +1,20 @@
-"""Skill XP and leveling state."""
+"""Skill XP, combat level, and leveling state."""
+
+from game.systems.balance import (
+    COMBAT_SKILLS,
+    combat_level_from_skill_levels,
+    level_to_xp,
+    xp_for_next_level,
+    xp_into_level,
+    xp_to_level,
+)
+
 
 SKILLS = [
     "Melee", "Ranged", "Magic", "Defense",
     "Woodcutting", "Mining", "Fishing", "Skinning", "Foraging",
     "Blacksmithing", "Tailoring", "Cooking", "Alchemy"
 ]
-
-def xp_to_level(xp):
-    if xp < 100:
-        return 1
-    # Exponential curve: Level = (XP / 100) ^ (1/1.5)
-    # Plus 1 so 0 xp = lvl 1, 100 xp = lvl 2.
-    # We want 100 xp to get you to level 2.
-    # Level 2 -> 100 * (1^1.5) = 100
-    # Level 3 -> 100 * (2^1.5) = ~282
-    # Level 10 -> 100 * (9^1.5) = 2700
-    return int((xp / 100.0) ** (1.0 / 1.5)) + 1
-
-
-def level_to_xp(level):
-    if level <= 1:
-        return 0
-    return int(100.0 * ((level - 1) ** 1.5))
-
-
-def xp_into_level(xp):
-    current_lvl = xp_to_level(xp)
-    base_xp = level_to_xp(current_lvl)
-    return max(0, xp - base_xp)
-
-
-def xp_for_next_level(xp):
-    current_lvl = xp_to_level(xp)
-    next_level_xp = level_to_xp(current_lvl + 1)
-    base_xp = level_to_xp(current_lvl)
-    return next_level_xp - base_xp
 
 
 class Skills:
@@ -51,6 +31,30 @@ class Skills:
 
     def get_level(self, skill):
         return xp_to_level(self.skill_xp.get(skill, 0))
+
+    def set_level(self, skill, level):
+        if skill not in self.skill_xp:
+            return False
+        self.skill_xp[skill] = level_to_xp(max(1, int(level)))
+        return True
+
+    def set_levels(self, level_map):
+        changed = False
+        for skill, level in level_map.items():
+            changed = self.set_level(skill, level) or changed
+        return changed
+
+    def reset_combat_skills(self):
+        for skill in COMBAT_SKILLS:
+            self.skill_xp[skill] = 0
+
+    def get_combat_level(self):
+        return combat_level_from_skill_levels(
+            self.get_level("Melee"),
+            self.get_level("Ranged"),
+            self.get_level("Magic"),
+            self.get_level("Defense"),
+        )
 
     def get_xp_progress(self, skill):
         xp = self.skill_xp.get(skill, 0)

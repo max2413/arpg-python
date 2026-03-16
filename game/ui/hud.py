@@ -16,6 +16,7 @@ from game.ui.widgets import (
     TOOLTIP_MANAGER,
     build_equipment_slot_defs,
     build_grid_slot_defs,
+    create_text_button,
 )
 
 
@@ -50,6 +51,10 @@ class HUD:
         self._combat_log_entries = []
         self._game_log_visible = False
         self._combat_log_visible = False
+        self._combat_debug_visible = False
+        self._menu_popup_visible = False
+        self._last_combat_event = None
+        self._benchmark_summary = "No benchmark run yet."
 
         self._build_prompt()
         self._build_player_panel()
@@ -63,6 +68,7 @@ class HUD:
         self._build_skill_window()
         self._build_game_log_window()
         self._build_combat_log_window()
+        self._build_combat_debug_window()
         self.inventory.add_listener(self.refresh_inventory)
 
     def _build_prompt(self):
@@ -103,6 +109,15 @@ class HUD:
             fg=(1, 1, 1, 1),
             align=TextNode.ALeft,
         )
+        self._player_level = OnscreenText(
+            text="CLv 1",
+            parent=self._player_panel,
+            pos=(0.4, -0.04),
+            scale=0.032,
+            fg=(0.85, 0.85, 0.55, 1),
+            align=TextNode.ARight,
+            mayChange=True,
+        )
         # HP Bar Fill
         self._health_fill = DirectFrame(
             parent=self._player_panel,
@@ -135,6 +150,9 @@ class HUD:
         self._health_fill["frameSize"] = (0.02, 0.02 + fill_w, -0.1, -0.06)
         self._health_label.setText(f"{int(math.ceil(health))}/{int(max_health)}")
 
+    def refresh_player_level(self, combat_level):
+        self._player_level.setText(f"CLv {int(combat_level)}")
+
     def show_death(self, respawn_time):
         self._death_text.setText(f"You died\nRespawning in {respawn_time:.1f}s")
 
@@ -151,9 +169,18 @@ class HUD:
         self._target_name = OnscreenText(
             text="",
             parent=self._target_panel,
-            pos=(-0.02, -0.04),
+            pos=(-0.12, -0.04),
             scale=0.04,
             fg=(1, 0.85, 0.3, 1),
+            align=TextNode.ARight,
+            mayChange=True,
+        )
+        self._target_level = OnscreenText(
+            text="",
+            parent=self._target_panel,
+            pos=(-0.02, -0.04),
+            scale=0.032,
+            fg=(1, 1, 0.6, 1),
             align=TextNode.ARight,
             mayChange=True,
         )
@@ -175,9 +202,14 @@ class HUD:
         )
         self._target_panel.hide()
 
-    def refresh_target(self, name, health, max_health):
+    def refresh_target(self, name, health, max_health, target_level=None, player_level=None):
         self._target_panel.show()
         self._target_name.setText(name)
+        if target_level is None:
+            self._target_level.setText("")
+        else:
+            self._target_level.setText(f"Lv {int(target_level)}")
+            self._target_level.node().setTextColor(*self._target_level_color(target_level, player_level))
         ratio = 0.0 if max_health <= 0 else max(0.0, min(1.0, health / max_health))
         fill_w = 0.41 * ratio
         # Fill from left to right for consistency
@@ -186,6 +218,16 @@ class HUD:
 
     def clear_target(self):
         self._target_panel.hide()
+
+    def _target_level_color(self, target_level, player_level):
+        if player_level is None:
+            return (1, 1, 0.6, 1)
+        delta = int(target_level) - int(player_level)
+        if delta <= -3:
+            return (0.35, 1.0, 0.35, 1)
+        if delta >= 3:
+            return (1.0, 0.35, 0.35, 1)
+        return (1.0, 0.92, 0.45, 1)
 
     def _build_action_bar(self):
         # Bottom center action bar area
@@ -293,6 +335,25 @@ class HUD:
         self._combat_log_window.hide()
         self._combat_log_labels = []
 
+    def _build_combat_debug_window(self):
+        self._combat_debug_window = DraggableWindow(
+            "Combat Debugger",
+            (0, 0.72, -0.66, 0.06),
+            (0.35, 0, 0.2),
+            self._close_combat_debug,
+        )
+        body = self._combat_debug_window.body
+        self._combat_debug_label = OnscreenText(
+            text="",
+            parent=body,
+            pos=(0.02, -0.06),
+            scale=0.03,
+            fg=(0.9, 0.9, 0.92, 1),
+            align=TextNode.ALeft,
+            mayChange=True,
+        )
+        self._combat_debug_window.hide()
+
     def _timestamp(self):
         return datetime.now().strftime("[%H:%M:%S]")
 
@@ -315,6 +376,20 @@ class HUD:
 
     def add_combat_log(self, msg):
         self._append_log_entry(self._combat_log_entries, self._combat_log_labels, self._combat_log_scroll, msg)
+
+    def record_combat_event(self, event):
+        self._last_combat_event = dict(event)
+        if self._combat_debug_visible and self.player is not None:
+            app = getattr(self.player, "_app", None)
+            target = app.selection_manager.selected_target if app and hasattr(app, "selection_manager") else None
+            self.refresh_combat_debug(self.player, target)
+
+    def set_benchmark_summary(self, summary):
+        self._benchmark_summary = summary or "No benchmark run yet."
+        if self._combat_debug_visible and self.player is not None:
+            app = getattr(self.player, "_app", None)
+            target = app.selection_manager.selected_target if app and hasattr(app, "selection_manager") else None
+            self.refresh_combat_debug(self.player, target)
 
     def _append_log_entry(self, entries, labels, scroll, msg):
         if not msg:
@@ -356,38 +431,67 @@ class HUD:
         self._cast_bar_panel.hide()
 
     def _build_menu_buttons(self):
-        # Redesigned menu buttons at bottom right
-        start_x = 0.22
-        btn_y = -0.92
-        spacing = 0.15
-        
         self.menu_buttons = []
         buttons = [
-            ("Inv (I)", self.toggle_inventory, (0.2, 0.3, 0.5, 1)),
-            ("Equip (C)", self.toggle_equipment, (0.3, 0.5, 0.2, 1)),
+            ("Inventory (I)", self.toggle_inventory, (0.2, 0.3, 0.5, 1)),
+            ("Equipment (C)", self.toggle_equipment, (0.3, 0.5, 0.2, 1)),
             ("Skills (K)", self.toggle_skills, (0.5, 0.2, 0.2, 1)),
-            ("Log (L)", self.toggle_game_log, (0.35, 0.35, 0.35, 1)),
-            ("Combat (J)", self.toggle_combat_log, (0.45, 0.28, 0.18, 1)),
-            ("Dev (F1)", self._on_dev_clicked, (0.4, 0.4, 0.4, 1)),
+            ("Game Log (L)", self.toggle_game_log, (0.35, 0.35, 0.35, 1)),
+            ("Combat Log (J)", self.toggle_combat_log, (0.45, 0.28, 0.18, 1)),
+            ("Combat Debugger (F4)", self.toggle_combat_debug, (0.18, 0.35, 0.35, 1)),
+            ("Developer Menu (F1)", self._on_dev_clicked, (0.4, 0.4, 0.4, 1)),
         ]
-        
+
+        self._menu_toggle = create_text_button(
+            builtins.base.aspect2d,
+            "Menu",
+            (1.04, 0, -0.92),
+            self.toggle_menu_popup,
+            scale=0.05,
+            min_half_width=1.4,
+            max_half_width=1.8,
+            padding=0.45,
+            frame_color=(0.2, 0.2, 0.24, 1),
+        )
+        TOOLTIP_MANAGER.bind(self._menu_toggle, "Open the quick menu.")
+
+        self._menu_popup = DirectFrame(
+            frameColor=(0.08, 0.08, 0.08, 0.92),
+            frameSize=(-0.34, 0.34, -0.56, 0.04),
+            pos=(0.72, 0, -0.32),
+        )
+        self._menu_popup.hide()
+
         for i, (text, cmd, color) in enumerate(buttons):
-            btn = DirectButton(
-                text=text,
-                scale=0.045,
-                pos=(start_x + i * spacing, 0, btn_y),
-                frameSize=(-2.0, 2.0, -0.6, 1.2),
-                frameColor=color,
-                text_fg=(1, 1, 1, 1),
-                command=cmd,
-                relief=DGG.RAISED,
-                borderWidth=(0.01, 0.01)
+            btn = create_text_button(
+                self._menu_popup,
+                text,
+                (0, 0, -0.06 - i * 0.075),
+                self._run_menu_command,
+                scale=0.04,
+                min_half_width=1.6,
+                max_half_width=None,
+                padding=0.55,
+                frame_color=color,
+                extra_args=[cmd],
             )
             # Add simple hover effect
             btn.bind(DGG.ENTER, lambda e, b=btn: b.setColorScale(1.2, 1.2, 1.2, 1))
             btn.bind(DGG.EXIT, lambda e, b=btn: b.setColorScale(1, 1, 1, 1))
             TOOLTIP_MANAGER.bind(btn, self._menu_tooltip(text))
             self.menu_buttons.append(btn)
+
+    def toggle_menu_popup(self):
+        self._menu_popup_visible = not self._menu_popup_visible
+        if self._menu_popup_visible:
+            self._menu_popup.show()
+        else:
+            self._menu_popup.hide()
+
+    def _run_menu_command(self, command):
+        self._menu_popup_visible = False
+        self._menu_popup.hide()
+        command()
 
     def _on_dev_clicked(self):
         if hasattr(self.player, "_app") and self.player._app:
@@ -548,14 +652,23 @@ class HUD:
     def _build_skill_window(self):
         self._skill_window = DraggableWindow("Skills", (0, 0.64, -0.85, 0.06), (-1.05, 0, -0.18), self._close_skills)
         body = self._skill_window.body
+        self._skill_combat_label = OnscreenText(
+            text="Combat Level 1",
+            parent=body,
+            pos=(0.02, 0.02),
+            scale=0.034,
+            fg=(1, 0.84, 0.4, 1),
+            align=TextNode.ALeft,
+            mayChange=True,
+        )
         
         scroll = DirectScrolledFrame(
             parent=body,
             canvasSize=(0, 0.6, -len(SKILLS) * 0.16 - 0.05, 0),
-            frameSize=(0.01, 0.63, -0.8, 0),
+            frameSize=(0.01, 0.63, -0.8, -0.05),
             frameColor=(0, 0, 0, 0),
             scrollBarWidth=0.03,
-            pos=(0, 0, -0.02)
+            pos=(0, 0, -0.08)
         )
         canvas = scroll.getCanvas()
         
@@ -595,16 +708,17 @@ class HUD:
             )
             recipe_button = None
             if any(recipe["skill"] == skill for recipe in crafting_svc.RECIPES.values()):
-                recipe_button = DirectButton(
-                    parent=canvas,
-                    text="Recipes",
+                recipe_button = create_text_button(
+                    canvas,
+                    "Recipes",
+                    (0.48, 0, y - 0.06),
+                    self._open_skill_recipes,
                     scale=0.032,
-                    pos=(0.48, 0, y - 0.06),
-                    frameSize=(-1.8, 1.8, -0.5, 1.0),
-                    frameColor=(0.28, 0.34, 0.46, 1),
-                    text_fg=(1, 1, 1, 1),
-                    command=self._open_skill_recipes,
-                    extraArgs=[skill],
+                    min_half_width=1.1,
+                    max_half_width=None,
+                    padding=0.45,
+                    frame_color=(0.28, 0.34, 0.46, 1),
+                    extra_args=[skill],
                 )
                 TOOLTIP_MANAGER.bind(recipe_button, f"Browse {skill} recipes.\nAnywhere recipes can be crafted from this view.")
             self._skill_bars[skill] = (lbl, bar_fill)
@@ -621,6 +735,7 @@ class HUD:
         self.refresh_inventory()
 
     def refresh_skills(self):
+        self._skill_combat_label.setText(f"Combat Level {self.skills.get_combat_level()}")
         for skill, (label, bar_fill) in self._skill_bars.items():
             level = self.skills.get_level(skill)
             xp_in, xp_max = self.skills.get_xp_progress(skill)
@@ -647,6 +762,9 @@ class HUD:
     def toggle_combat_log(self):
         self._set_combat_log_visible(not self._combat_log_visible)
 
+    def toggle_combat_debug(self):
+        self._set_combat_debug_visible(not self._combat_debug_visible)
+
     def _close_inventory(self):
         self._set_inventory_visible(False)
 
@@ -661,6 +779,9 @@ class HUD:
 
     def _close_combat_log(self):
         self._set_combat_log_visible(False)
+
+    def _close_combat_debug(self):
+        self._set_combat_debug_visible(False)
 
     def _set_inventory_visible(self, visible):
         self._inv_visible = visible
@@ -703,6 +824,16 @@ class HUD:
         else:
             self._combat_log_window.hide()
 
+    def _set_combat_debug_visible(self, visible):
+        self._combat_debug_visible = visible
+        if visible:
+            app = getattr(self.player, "_app", None) if self.player else None
+            target = app.selection_manager.selected_target if app and hasattr(app, "selection_manager") else None
+            self.refresh_combat_debug(self.player, target)
+            self._combat_debug_window.show()
+        else:
+            self._combat_debug_window.hide()
+
     def _build_range_indicators(self):
         # Deprecated in favor of action bar
         pass
@@ -713,12 +844,13 @@ class HUD:
 
     def _menu_tooltip(self, button_text):
         tips = {
-            "Inv (I)": "Open the inventory window.",
-            "Equip (C)": "Open the equipment and combat stats window.",
+            "Inventory (I)": "Open the inventory window.",
+            "Equipment (C)": "Open the equipment and combat stats window.",
             "Skills (K)": "Open the skills progression window.",
-            "Log (L)": "Open the game event log.",
-            "Combat (J)": "Open the combat log.",
-            "Dev (F1)": "Open the developer tools panel.",
+            "Game Log (L)": "Open the game event log.",
+            "Combat Log (J)": "Open the combat log.",
+            "Combat Debugger (F4)": "Open the combat debugger.",
+            "Developer Menu (F1)": "Open the developer tools panel.",
         }
         return tips.get(button_text, button_text)
 
@@ -735,3 +867,48 @@ class HUD:
             "parry_chance": "Chance to parry weapon attacks.",
         }
         return f"{label_text}\n{tips.get(stat_key, 'Current derived combat stat.')}"
+
+    def refresh_combat_debug(self, player, target):
+        if player is None:
+            return
+        p_level = player.get_combat_level() if hasattr(player, "get_combat_level") else self.skills.get_combat_level()
+        p_lines = [
+            f"Player CLv {p_level}",
+            f"HP {player.health:.1f}/{player.max_health:.1f}",
+            (
+                "Stats "
+                f"M:{player.stats.get('melee_damage'):.1f} "
+                f"R:{player.stats.get('ranged_damage'):.1f} "
+                f"Ma:{player.stats.get('magic_damage'):.1f} "
+                f"Arm:{player.stats.get('armor'):.1f}"
+            ),
+        ]
+        t_lines = ["Target: None"]
+        if target is not None:
+            target_level = target.get_level() if hasattr(target, "get_level") else 1
+            t_lines = [
+                f"Target {target.get_target_name()} Lv {target_level}",
+                f"HP {target.health:.1f}/{target.max_health:.1f}",
+                (
+                    "Stats "
+                    f"M:{target.stats.get('melee_damage'):.1f} "
+                    f"R:{target.stats.get('ranged_damage'):.1f} "
+                    f"Arm:{target.stats.get('armor'):.1f} "
+                    f"Eva:{target.stats.get('evasion'):.2f}"
+                ),
+            ]
+        event = self._last_combat_event or {}
+        event_lines = [
+            "Last Event",
+            (
+                f"{event.get('attacker', '-')} -> {event.get('defender', '-')} "
+                f"[{event.get('style', '-')}] {event.get('result', '-')}"
+            ),
+            (
+                f"Base {event.get('base_damage', 0.0):.1f} | "
+                f"Final {event.get('damage', 0.0):.1f} | "
+                f"Mitigated {event.get('mitigated', 0.0):.1f}"
+            ),
+            f"Benchmark: {self._benchmark_summary}",
+        ]
+        self._combat_debug_label.setText("\n".join(p_lines + [""] + t_lines + [""] + event_lines))
