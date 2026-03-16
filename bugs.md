@@ -1,0 +1,9 @@
+-cooking meat does not consume the raw meat and provide cooked meat but does give exp. looks like item for cooked fish / meat is not mapped. maybe not added. 
+-combat with deer does not award exp until after the battle.
+-deer combat with ranged and out of aggro range causes it to reset and regenerate constantly. 
+-inventory does not update when buying things from vendor when it is open. generally inventory probably needs a more reliable update trigger.
+-other mobs not giving exp for melee
+-need to examine methodology for calculating melee or ranged exp if both are used. 
+-need to add another equipment slot for range (wand/bow/throwing knife) and only allow it if ranged weapon is equiped.
+-skills should be a deeper, more informative window with buttons to access the recepies for that skill. for example, tailoring should not require an anvil but be able to be performed anywhere. players may want to check what they need to mine for even if they need the anvil to craft. exp numbers should be shown.
+-its high time for a better in game log, and we should probably build out a little more of an elegant method for both casting (currently harvesting, and spells in the future, cast bar generally) and tool tip messages / notifications (press e to harvest, item x crafted for 25exp)

@@ -30,7 +30,7 @@
     "name": "Traveler Tunic",
     "skill": "Tailoring",
     "level": 1,
-    "station": "anvil",
+    "station": "any",
     "inputs": {"leather": 3},
     "output": {"id": "traveler_tunic", "qty": 1},
     "xp": 50
@@ -39,7 +39,7 @@
     "name": "Canvas Pants",
     "skill": "Tailoring",
     "level": 1,
-    "station": "anvil",
+    "station": "any",
     "inputs": {"leather": 2},
     "output": {"id": "canvas_pants", "qty": 1},
     "xp": 40
@@ -48,7 +48,7 @@
     "name": "Cloth Hood",
     "skill": "Tailoring",
     "level": 1,
-    "station": "anvil",
+    "station": "any",
     "inputs": {"leather": 1},
     "output": {"id": "cloth_hood", "qty": 1},
     "xp": 30
@@ -59,7 +59,7 @@
     "level": 1,
     "station": "campfire",
     "inputs": {"fish": 1},
-    "output": {"id": "fish", "qty": 1},
+    "output": {"id": "cooked_fish", "qty": 1},
     "xp": 20
   },
   "cooked_meat": {
@@ -68,7 +68,7 @@
     "level": 1,
     "station": "campfire",
     "inputs": {"raw_meat": 1},
-    "output": {"id": "raw_meat", "qty": 1},
+    "output": {"id": "cooked_meat", "qty": 1},
     "xp": 25
   }
 }

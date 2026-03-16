@@ -1,6 +1,7 @@
 """Reusable DirectGUI widgets for draggable windows and item slots."""
 
 import builtins
+import time
 
 from direct.gui import DirectGuiGlobals as DGG
 from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
@@ -8,6 +9,7 @@ from panda3d.core import MouseButton, Point3, TextNode
 
 from game.systems.inventory import (
     EQUIPMENT_SLOTS,
+    build_item_tooltip,
     clone_stack,
     get_item_def,
     get_item_name,
@@ -150,7 +152,7 @@ def create_item_icon(parent, item_def):
 
 
 class DraggableWindow:
-    def __init__(self, title, frame_size, pos, close_command=None):
+    def __init__(self, title, frame_size, pos, close_command=None, resize_callback=None, resizable=False):
         self._base = builtins.base
         self.root = DirectFrame(
             frameColor=(0.12, 0.12, 0.12, 0.95),
@@ -159,9 +161,15 @@ class DraggableWindow:
         )
         self._frame_size = frame_size
         self._drag_task_name = f"window_drag_{id(self)}"
+        self._resize_task_name = f"window_resize_{id(self)}"
         self._dragging = False
+        self._resizing = False
         self._drag_start_mouse = (0.0, 0.0)
         self._drag_start_pos = self.root.getPos()
+        self._resize_start_mouse = (0.0, 0.0)
+        self._resize_start_size = frame_size
+        self._resize_callback = resize_callback
+        self._resizable = resizable
 
         left, right, bottom, top = frame_size
         title_bottom = top - 0.1
@@ -211,6 +219,21 @@ class DraggableWindow:
                 frameColor=(0.6, 0.14, 0.14, 1),
                 text_fg=(1, 1, 1, 1),
             )
+        self.resize_handle = None
+        if self._resizable:
+            self.resize_handle = DirectButton(
+                parent=self.root,
+                text="<>",
+                scale=0.028,
+                pos=(right - 0.045, 0, bottom + 0.035),
+                frameColor=(0.22, 0.22, 0.22, 1),
+                text_fg=(0.86, 0.86, 0.86, 1),
+                relief=DGG.RAISED,
+                pressEffect=False,
+                command=self._noop,
+            )
+            self.resize_handle.bind(DGG.B1PRESS, self._begin_resize)
+            self.resize_handle.bind(DGG.B1RELEASE, self._end_resize)
 
     def show(self):
         self.root.show()
@@ -220,6 +243,7 @@ class DraggableWindow:
 
     def destroy(self):
         self._stop_drag_task()
+        self._stop_resize_task()
         self.root.destroy()
 
     def _noop(self):
@@ -256,9 +280,150 @@ class DraggableWindow:
         self.root.setPos(self._drag_start_pos.x + dx, 0, self._drag_start_pos.z + dz)
         return task.cont
 
+    def _begin_resize(self, _event):
+        if not self._base.mouseWatcherNode.hasMouse():
+            return
+        mouse = self._mouse_point()
+        self._resizing = True
+        self._resize_start_mouse = (mouse.x, mouse.z)
+        self._resize_start_size = self._frame_size
+        if not self._base.taskMgr.hasTaskNamed(self._resize_task_name):
+            self._base.taskMgr.add(self._resize_task, self._resize_task_name)
+
+    def _end_resize(self, _event):
+        self._resizing = False
+        self._stop_resize_task()
+
+    def _stop_resize_task(self):
+        self._base.taskMgr.remove(self._resize_task_name)
+
+    def _resize_task(self, task):
+        if not self._resizing:
+            return task.done
+        if not self._base.mouseWatcherNode.hasMouse():
+            return task.cont
+        if not self._base.mouseWatcherNode.isButtonDown(MouseButton.one()):
+            self._resizing = False
+            return task.done
+        mouse = self._mouse_point()
+        dx = mouse.x - self._resize_start_mouse[0]
+        dz = mouse.z - self._resize_start_mouse[1]
+        left, _right, bottom, top = self._resize_start_size
+        new_right = max(left + 0.3, self._resize_start_size[1] + dx)
+        new_bottom = min(top - 0.3, self._resize_start_size[2] + dz)
+        self._apply_frame_size((left, new_right, new_bottom, top))
+        return task.cont
+
+    def _apply_frame_size(self, frame_size):
+        self._frame_size = frame_size
+        left, right, bottom, top = frame_size
+        title_bottom = top - 0.1
+        self.root["frameSize"] = frame_size
+        self.title_bar_bg["frameSize"] = (left, right, title_bottom, top)
+        drag_right = right - 0.12 if self.close_button is not None else right
+        self.title_bar["frameSize"] = (left, drag_right, title_bottom, top)
+        self.title_label.setPos((left + right) * 0.5, top - 0.065)
+        self.body["frameSize"] = (left, right, bottom, title_bottom - 0.01)
+        if self.close_button is not None:
+            self.close_button.setPos(right - 0.07, 0, top - 0.055)
+        if self.resize_handle is not None:
+            self.resize_handle.setPos(right - 0.045, 0, bottom + 0.035)
+        if self._resize_callback is not None:
+            self._resize_callback(frame_size)
+
     def _mouse_point(self):
         mouse = self._base.mouseWatcherNode.getMouse()
         return self._base.aspect2d.getRelativePoint(self._base.render2d, Point3(mouse.x, 0, mouse.y))
+
+
+class TooltipManager:
+    def __init__(self):
+        self._base = None
+        self._task_name = "ui_tooltip_follow"
+        self._target = None
+        self._frame = None
+        self._label = None
+
+    def bind(self, widget, content_getter):
+        widget.bind(DGG.ENTER, lambda _event, w=widget, getter=content_getter: self.show_for(w, getter))
+        widget.bind(DGG.EXIT, lambda _event, w=widget: self.hide_for(w))
+
+    def show_for(self, widget, content_getter):
+        if not self._ensure_base():
+            return
+        self._target = (widget, content_getter)
+        self._update_text()
+        self._frame.show()
+        if not self._base.taskMgr.hasTaskNamed(self._task_name):
+            self._base.taskMgr.add(self._follow_task, self._task_name)
+
+    def hide_for(self, widget):
+        if self._target is not None and self._target[0] is widget:
+            self.hide()
+
+    def hide(self):
+        self._target = None
+        if self._frame is not None:
+            self._frame.hide()
+        if self._base is not None:
+            self._base.taskMgr.remove(self._task_name)
+
+    def _update_text(self):
+        if self._target is None:
+            return
+        _, content_getter = self._target
+        text = content_getter() if callable(content_getter) else str(content_getter)
+        if not text:
+            self.hide()
+            return
+        self._label.setText(text)
+
+    def _ensure_base(self):
+        if self._base is not None:
+            return True
+        base = getattr(builtins, "base", None)
+        if base is None:
+            return False
+        self._base = base
+        self._frame = DirectFrame(
+            parent=self._base.aspect2d,
+            frameColor=(0.05, 0.05, 0.05, 0.94),
+            frameSize=(0, 0.52, -0.19, 0),
+            pos=(0, 0, 0),
+            relief=DGG.FLAT,
+            state=DGG.DISABLED,
+        )
+        self._label = OnscreenText(
+            text="",
+            parent=self._frame,
+            pos=(0.02, -0.045),
+            scale=0.028,
+            fg=(0.96, 0.96, 0.96, 1),
+            align=TextNode.ALeft,
+            mayChange=True,
+        )
+        self._frame.hide()
+        return True
+
+    def _follow_task(self, task):
+        if self._target is None:
+            return task.done
+        widget, _ = self._target
+        if widget.isEmpty():
+            self.hide()
+            return task.done
+        if DRAG_MANAGER.active is not None:
+            self.hide()
+            return task.done
+        if not self._base.mouseWatcherNode.hasMouse():
+            return task.cont
+        self._update_text()
+        mouse = self._base.mouseWatcherNode.getMouse()
+        point = self._base.aspect2d.getRelativePoint(self._base.render2d, Point3(mouse.x, 0, mouse.y))
+        x = min(point.x + 0.04, 0.72)
+        z = max(point.z - 0.04, -0.78)
+        self._frame.setPos(x, 0, z)
+        return task.cont
 
 
 class ItemDragManager:
@@ -281,6 +446,7 @@ class ItemDragManager:
         stack = slot_view.container.get_slot(slot_key)
         if stack is None or self.active is not None:
             return
+        TOOLTIP_MANAGER.hide()
         self._ensure_base()
         self.active = {
             "slot_view": slot_view,
@@ -288,7 +454,7 @@ class ItemDragManager:
             "stack": clone_stack(stack),
             "ghost": self._build_ghost(stack),
         }
-        self._hover_target = (slot_view, slot_key)
+        self._hover_target = None
         self._base.taskMgr.add(self._ghost_task, self._task_name)
 
     def set_hover_target(self, slot_view, slot_key):
@@ -355,7 +521,7 @@ class ItemDragManager:
         point = self._base.aspect2d.getRelativePoint(self._base.render2d, Point3(mouse.x, 0, mouse.y))
         self.active["ghost"].setPos(point.x, 0, point.z)
         if not self._base.mouseWatcherNode.isButtonDown(MouseButton.one()):
-            target = self._hover_target or self._hit_test_target(point.x, point.z)
+            target = self._hit_test_target(point.x, point.z) or self._hover_target
             if target is not None:
                 self.drop_on(*target)
             else:
@@ -387,9 +553,12 @@ class ItemDragManager:
 
 
 DRAG_MANAGER = ItemDragManager()
+TOOLTIP_MANAGER = TooltipManager()
 
 
 class ItemSlotCollection:
+    DOUBLE_CLICK_SECONDS = 0.35
+
     def __init__(
         self,
         parent,
@@ -398,6 +567,7 @@ class ItemSlotCollection:
         slot_size,
         on_change=None,
         show_names=False,
+        transfer_targets=None,
     ):
         self.parent = parent
         self.container = container
@@ -405,7 +575,9 @@ class ItemSlotCollection:
         self.slot_size = slot_size
         self.on_change = on_change
         self.show_names = show_names
+        self.transfer_targets = transfer_targets or []
         self.entries = {}
+        self._last_click = None
         DRAG_MANAGER.register_collection(self)
         self._build()
 
@@ -457,6 +629,7 @@ class ItemSlotCollection:
                 "icon_parts": [],
                 "slot_def": slot_def,
             }
+            TOOLTIP_MANAGER.bind(button, lambda slot_key=key: self._tooltip_text(slot_key))
         self.refresh()
 
     def destroy(self):
@@ -489,6 +662,8 @@ class ItemSlotCollection:
         return None
 
     def _on_press(self, slot_key):
+        if self._handle_double_click(slot_key):
+            return
         DRAG_MANAGER.begin_drag(self, slot_key)
 
     def _on_enter(self, slot_key):
@@ -496,11 +671,64 @@ class ItemSlotCollection:
 
     def _on_exit(self, slot_key):
         DRAG_MANAGER.clear_hover_target(self, slot_key)
+        TOOLTIP_MANAGER.hide()
+
+    def _tooltip_text(self, slot_key):
+        stack = self.container.get_slot(slot_key)
+        if stack is None:
+            slot_label = self.entries[slot_key]["slot_def"].get("label")
+            return slot_label or "Empty slot"
+        return build_item_tooltip(stack["id"], quantity=stack["quantity"])
+
+    def _handle_double_click(self, slot_key):
+        now = time.monotonic()
+        is_double_click = (
+            self._last_click is not None
+            and self._last_click[0] == slot_key
+            and now - self._last_click[1] <= self.DOUBLE_CLICK_SECONDS
+        )
+        self._last_click = (slot_key, now)
+        if not is_double_click:
+            return False
+        moved = self.transfer_slot(slot_key)
+        if moved:
+            TOOLTIP_MANAGER.hide()
+        return moved
+
+    def transfer_slot(self, slot_key):
+        stack = self.container.get_slot(slot_key)
+        if stack is None:
+            return False
+        for target_collection in self.transfer_targets:
+            target_slot = self._find_transfer_target(target_collection, stack)
+            if target_slot is None:
+                continue
+            changed = move_item(self.container, slot_key, target_collection.container, target_slot)
+            if not changed:
+                continue
+            self.refresh()
+            if target_collection is not self:
+                target_collection.refresh()
+            self.notify_changed()
+            if target_collection is not self:
+                target_collection.notify_changed()
+            return True
+        return False
+
+    def _find_transfer_target(self, target_collection, stack):
+        for slot_key in target_collection.container.iter_slot_keys():
+            target_stack = target_collection.container.get_slot(slot_key)
+            if target_stack and target_stack["id"] == stack["id"] and target_collection.container.can_place(slot_key, stack):
+                return slot_key
+        for slot_key in target_collection.container.iter_slot_keys():
+            if target_collection.container.get_slot(slot_key) is None and target_collection.container.can_place(slot_key, stack):
+                return slot_key
+        return None
 
     def hit_test(self, mouse_x, mouse_z):
         for key, entry in self.entries.items():
             button = entry["button"]
-            if button.isEmpty():
+            if button.isEmpty() or button.isHidden():
                 continue
             try:
                 pos = button.getPos(builtins.base.aspect2d)
@@ -538,6 +766,7 @@ def build_equipment_slot_defs(slot_size, origin_x, origin_z):
         "weapon": (origin_x, origin_z - slot_size * 1.15),
         "chest": (origin_x + slot_size * 1.1, origin_z - slot_size * 1.15),
         "offhand": (origin_x + slot_size * 2.2, origin_z - slot_size * 1.15),
+        "ranged": (origin_x + slot_size * 2.2, origin_z - slot_size * 2.3),
         "legs": (origin_x + slot_size * 1.1, origin_z - slot_size * 2.3),
     }
     slot_defs = []

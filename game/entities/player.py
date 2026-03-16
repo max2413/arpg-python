@@ -22,6 +22,7 @@ from game.entities.models import (
     build_equipment_model,
 )
 from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile, resolve_attack
+from game.systems.inventory import get_item_def
 from game.systems.stats import StatManager
 
 
@@ -162,7 +163,7 @@ class Player:
 
     def refresh_equipment_models(self):
         """Update visible equipment models based on inventory dynamically."""
-        for slot_name in ["weapon", "offhand", "head", "chest", "legs"]:
+        for slot_name in ["weapon", "offhand", "ranged", "head", "chest", "legs"]:
             stack = self.inventory.equipment.get_slot(slot_name)
             if stack:
                 model_np = build_equipment_model(stack["id"])
@@ -306,10 +307,42 @@ class Player:
         if style == "melee":
             profile = dict(UNARMED_MELEE_PROFILE)
             profile["damage"] = self.stats.get("melee_damage")
+            profile["xp_style"] = "melee"
         elif style == "ranged":
+            ranged_item = self.inventory.equipment.get_slot("ranged")
+            if ranged_item is None:
+                return None
             profile = dict(UNARMED_RANGED_PROFILE)
-            profile["damage"] = self.stats.get("ranged_damage")
+            item_def = get_item_def(ranged_item["id"])
+            subtype = item_def.get("subtype") if item_def else None
+            if subtype in ("wand", "staff"):
+                profile["damage"] = self.stats.get("magic_damage")
+                profile["name"] = item_def["name"] if item_def else "Magic"
+                profile["projectile_color"] = tuple(item_def.get("accent_color", (0.35, 0.75, 1.0, 1.0))) if item_def else (0.35, 0.75, 1.0, 1.0)
+                profile["xp_style"] = "magic"
+            else:
+                profile["damage"] = self.stats.get("ranged_damage")
+                profile["name"] = item_def["name"] if item_def else profile["name"]
+                profile["xp_style"] = "ranged"
         return profile
+
+    def grant_combat_xp(self, style, amount):
+        if amount <= 0 or not hasattr(self, "stats") or not self.stats.skills:
+            return
+        skill_name = {
+            "melee": "Melee",
+            "ranged": "Ranged",
+            "magic": "Magic",
+        }.get(style)
+        if skill_name is None:
+            return
+        levels = self.stats.skills.add_xp(skill_name, amount)
+        if levels > 0 and self._app and hasattr(self._app, "hud"):
+            self._app.hud.refresh_skills()
+            self._app.hud.show_prompt(f"{skill_name} level up! Level {self.stats.skills.get_level(skill_name)}")
+            self._app.hud.add_log(f"{skill_name} level up! Level {self.stats.skills.get_level(skill_name)}")
+        elif self._app and hasattr(self._app, "hud"):
+            self._app.hud.refresh_skills()
 
     def start_auto_attack(self, style):
         if style not in ("melee", "ranged"):
@@ -354,15 +387,14 @@ class Player:
         if profile["projectile"]:
             self.fire_target_projectile(target, profile)
         else:
-            outcome = resolve_attack(self, target, self._auto_attack_style, profile["damage"])
+            xp_style = profile.get("xp_style", self._auto_attack_style)
+            outcome = resolve_attack(self, target, xp_style, profile["damage"])
             _log_combat(f"player melee {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
             if outcome["type"] != "miss" and outcome["type"] != "parry":
-                if target.take_damage(outcome["damage"], hud, attacker=self):
+                if target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style):
                     # Target died, maybe bonus XP?
                     pass
-                if hasattr(self, "stats") and self.stats.skills:
-                    skill_name = "Melee" if self._auto_attack_style == "melee" else "Ranged"
-                    self.stats.skills.add_xp(skill_name, outcome["damage"])
+                self.grant_combat_xp(xp_style, outcome["damage"])
         self._auto_attack_timer = profile["speed"]
 
     def _poll_input(self):
@@ -422,12 +454,19 @@ class Player:
         self.projectiles = active
 
     def _on_projectile_hit(self, target, base_damage, hud):
-        outcome = resolve_attack(self, target, "ranged", base_damage)
+        profile = self.get_combat_profile("ranged")
+        xp_style = profile.get("xp_style", "ranged") if profile else "ranged"
+        outcome = resolve_attack(self, target, xp_style, base_damage)
         _log_combat(f"player ranged {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
         if outcome["type"] != "miss" and outcome["type"] != "parry":
-            target.take_damage(outcome["damage"], hud, attacker=self)
+            target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style)
+            self.grant_combat_xp(xp_style, outcome["damage"])
 
 
 def _log_combat(message):
+    import builtins
+    app = getattr(builtins, "base", None)
+    if app is not None and hasattr(app, "hud"):
+        app.hud.add_combat_log(message)
     if DEBUG_COMBAT_LOGS:
         print(f"[combat] {message}")

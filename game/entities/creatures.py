@@ -1,9 +1,11 @@
 """
-creatures.py - Base class for all world entities (Scout, Wolf, Deer, etc).
+creatures.py - Data-driven world entities (monsters, animals, etc).
 """
 
 import math
 import random
+import json
+import os
 
 from panda3d.core import Vec3, NodePath, TextNode, BillboardEffect, LineSegs
 from panda3d.bullet import BulletGhostNode, BulletSphereShape
@@ -18,6 +20,7 @@ from game.systems.combat import (
 )
 from game.systems.stats import StatManager
 
+# AI Balance Constants
 PATROL_SPEED = 4.0
 CHASE_SPEED = 8.5
 FLIGHT_SPEED = 10.0
@@ -37,40 +40,51 @@ RESET_REGEN_RATE = 10.0
 PLAYER_ATTACK_DAMAGE = 20
 PLAYER_ATTACK_COOLDOWN = 0.25
 HOSTILE_RESPAWN_TIME = 6.0
-ATTACK_PROMPT = "Press E to attack"
-LOOT_PROMPT = "Press E to loot"
 HURT_FLASH_TIME = 0.12
 LOOT_INDICATOR_TEXT = "Loot"
 LOOT_RESPAWN_MULT = 2.0
 HOSTILE_HIT_RADIUS = 1.65
 HOSTILE_HIT_HEIGHT = 3.8
-RANGED_PROJECTILE_DAMAGE = 7
-RANGED_ATTACK_DISTANCE = 14.0
 TARGETED_LABEL_COLOR = (1.0, 0.82, 0.22, 1)
 DEBUG_COMBAT_LOGS = False
+PLAYER_XP_STYLES = ("melee", "ranged", "magic")
 
-SCOUT_MELEE_PROFILE = make_combat_profile("Claws", ATTACK_RANGE, 2.2, ATTACK_DAMAGE, projectile=False)
+# Fallback Profiles
+SCOUT_MELEE_PROFILE = make_combat_profile("Claws", ATTACK_RANGE, 2.2, 10, projectile=False)
 RANGER_RANGED_PROFILE = make_combat_profile(
-    "Spit",
-    RANGED_ATTACK_DISTANCE,
-    2.6,
-    RANGED_PROJECTILE_DAMAGE,
-    projectile=True,
-    preferred_range=12.0,
-    projectile_speed=22.0,
-    projectile_radius=0.24,
-    projectile_color=(0.7, 1.0, 0.35, 1),
+    "Spit", 14.0, 2.6, 6, projectile=True, preferred_range=12.0, 
+    projectile_speed=22.0, projectile_radius=0.24, projectile_color=(0.7, 1.0, 0.35, 1)
 )
-WOLF_MELEE_PROFILE = make_combat_profile("Bite", ATTACK_RANGE, 1.5, 12, projectile=False)
 
+CREATURE_DEFS = {}
+CREATURES_PATH = os.path.join("data", "creatures.json")
 
-class BaseCreature:
-    def __init__(self, render, pos, patrol_center=None, terrain=None, bullet_world=None):
+def load_creature_defs():
+    global CREATURE_DEFS
+    if not os.path.exists(CREATURES_PATH):
+        print(f"[creatures] definition file not found: {CREATURES_PATH}")
+        return
+    try:
+        with open(CREATURES_PATH, "r") as f:
+            CREATURE_DEFS = json.load(f)
+        print(f"[creatures] loaded {len(CREATURE_DEFS)} definitions")
+    except Exception as e:
+        print(f"[creatures] failed to load definitions: {e}")
+
+class Creature:
+    def __init__(self, render, pos, creature_id, patrol_center=None, terrain=None, bullet_world=None):
         self.render = render
         self.terrain = terrain
         self.bullet_world = bullet_world
         self.pos = Vec3(*pos)
         self.patrol_center = Vec3(*(patrol_center or pos))
+        
+        # Data loading
+        self.creature_id = creature_id
+        self.data = CREATURE_DEFS.get(creature_id, {})
+        if not self.data:
+            print(f"[creatures] warning: no definition for {creature_id}")
+
         self._rng = random.Random(f"{self.patrol_center.x:.2f},{self.patrol_center.y:.2f}")
         self._state = "patrol"
         self._wait_timer = 0.0
@@ -80,6 +94,7 @@ class BaseCreature:
         self._time_since_damage_taken = AGGRO_RESET_TIME
         
         self.stats = StatManager(self)
+        self._apply_data_stats()
         self.health = self.max_health
         self.dead = False
         self._despawned = False
@@ -92,9 +107,9 @@ class BaseCreature:
         self.projectiles = []
         self._combat_target = None
         self._targeted = False
-        self._label_color = (1, 0.95, 0.8, 1)
+        self._player_damage_by_style = {style: 0.0 for style in PLAYER_XP_STYLES}
 
-        self.root = NodePath("base_creature")
+        self.root = NodePath(f"creature_{creature_id}")
         self.root.reparentTo(render)
         self.root.setPos(self.pos)
         self.root.setP(0)
@@ -103,16 +118,56 @@ class BaseCreature:
         self._build_target_arrow()
         self._build_debug_ghost()
 
+    def _apply_data_stats(self):
+        stats_data = self.data.get("stats", {})
+        for k, v in stats_data.items():
+            self.stats.set_base_stat(k, v)
+
     @property
     def max_health(self):
         return self.stats.get("max_health")
 
     @property
     def is_hostile(self):
-        return True
+        return self.data.get("ai_type", "hostile") == "hostile"
 
     def _build_visual(self):
-        raise NotImplementedError
+        v = self.data.get("visuals", {})
+        m_type = self.data.get("model_type", "humanoid")
+        
+        if m_type == "humanoid":
+            self.model = HumanoidModel(
+                self.root,
+                skin_color=tuple(v.get("skin_color", [0.9, 0.8, 0.7, 1.0])),
+                tunic_color=tuple(v.get("tunic_color", [0.5, 0.5, 0.5, 1.0]))
+            )
+        else:
+            self.model = CreatureModel(
+                self.root,
+                main_color=tuple(v.get("color", [0.4, 0.4, 0.4, 1.0])),
+                size=tuple(v.get("size", [0.8, 1.6, 0.8]))
+            )
+
+        self._label_color = tuple(v.get("label_color", [1, 1, 1, 1]))
+        label_text = self.data.get("name", self.creature_id.capitalize())
+        label_scale = v.get("label_scale", 1.0)
+        z_off = 4.3 if m_type == "humanoid" else 2.8
+        
+        self._label_np = self._make_label("creature_label", label_text, self._label_color, scale=label_scale)
+        self._label_np.setPos(0, 0, z_off)
+
+        # Loot indicator
+        loot_node = TextNode("loot_label")
+        loot_node.setText(LOOT_INDICATOR_TEXT)
+        loot_node.setAlign(TextNode.ACenter)
+        loot_node.setTextColor(1, 0.9, 0.2, 1)
+        loot_node.setShadow(0.04, 0.04)
+        loot_node.setShadowColor(0, 0, 0, 0.8)
+        self._loot_label_np = self.root.attachNewNode(loot_node)
+        self._loot_label_np.setPos(0, 0, 1.1)
+        self._loot_label_np.setScale(0.9)
+        self._loot_label_np.setEffect(BillboardEffect.makePointEye())
+        self._loot_label_np.hide()
 
     def _make_label(self, node_name, text, color, scale):
         label_node = TextNode(node_name)
@@ -173,7 +228,7 @@ class BaseCreature:
             self._animate(dt, False)
             self._dead_time += dt
             if not player.dead and self._loot and player_dist <= ATTACK_RANGE:
-                self._show_prompt(hud, LOOT_PROMPT)
+                self._show_prompt(hud, "Press E to loot")
             else:
                 self._clear_prompt(hud)
 
@@ -202,11 +257,15 @@ class BaseCreature:
                 self._state = "flight"
         elif self._state == "chase" and self._time_since_damage_taken >= AGGRO_RESET_TIME:
             self._enter_reset()
-        elif self._state == "flight" and player_dist > LEASH_DISTANCE:
+        elif (
+            self._state == "flight"
+            and player_dist > LEASH_DISTANCE
+            and self._time_since_damage_taken >= AGGRO_RESET_TIME
+        ):
             self._enter_reset()
 
         if player_dist <= ATTACK_RANGE:
-            self._show_prompt(hud, ATTACK_PROMPT)
+            self._show_prompt(hud, "Press E to attack")
         else:
             self._clear_prompt(hud)
 
@@ -304,7 +363,6 @@ class BaseCreature:
         self._animate(dt, True)
 
     def _update_flight(self, dt, to_player):
-        # Run away from player
         away = -to_player
         away.z = 0
         if away.lengthSquared() > 0:
@@ -326,10 +384,12 @@ class BaseCreature:
         self._clear_projectiles()
 
     def _update_reset(self, dt):
-        self.health = min(self.max_health, self.health + RESET_REGEN_RATE * dt)
+        if self.is_hostile or self._time_since_damage_taken >= AGGRO_RESET_TIME:
+            self.health = min(self.max_health, self.health + RESET_REGEN_RATE * dt)
         self._move_toward(self._ground_point(self.patrol_center.x, self.patrol_center.y), PATROL_SPEED, dt, stop_distance=0.0)
         if (self.patrol_center - self.pos).length() <= PATROL_POINT_TOLERANCE:
-            self.health = self.max_health
+            if self.is_hostile or self._time_since_damage_taken >= AGGRO_RESET_TIME:
+                self.health = self.max_health
             self._state = "patrol"
             self._wait_timer = 0.0
             self._patrol_target = self._pick_patrol_target()
@@ -339,9 +399,16 @@ class BaseCreature:
         self._animate(dt, True)
 
     def get_combat_profile(self):
-        # Base enemy defaults to scout melee profile
-        profile = dict(SCOUT_MELEE_PROFILE)
-        profile["damage"] = self.stats.get("melee_damage")
+        c_data = self.data.get("combat", {})
+        style = c_data.get("style", "melee")
+        
+        if style == "ranged":
+            profile = dict(RANGER_RANGED_PROFILE)
+            profile["damage"] = self.stats.get("ranged_damage")
+        else:
+            profile = dict(SCOUT_MELEE_PROFILE)
+            profile["damage"] = self.stats.get("melee_damage")
+        
         return profile
 
     def combat_tick(self, tick_dt, player, hud):
@@ -401,7 +468,9 @@ class BaseCreature:
         if self._player_attack_cooldown > 0.0:
             return True
 
-        self.take_damage(PLAYER_ATTACK_DAMAGE, hud, attacker=player)
+        self.take_damage(PLAYER_ATTACK_DAMAGE, hud, attacker=player, attack_style="melee")
+        if hasattr(player, "grant_combat_xp"):
+            player.grant_combat_xp("melee", PLAYER_ATTACK_DAMAGE)
         self._player_attack_cooldown = PLAYER_ATTACK_COOLDOWN
         return True
 
@@ -422,6 +491,7 @@ class BaseCreature:
         self._clear_prompt(hud)
         hud.refresh_inventory()
         hud.show_prompt(f"Looted {', '.join(parts)}")
+        hud.add_log(f"Looted {', '.join(parts)}")
         return True
 
     def _loot_fits(self, inventory):
@@ -435,11 +505,12 @@ class BaseCreature:
                 needed_slots += 1
         return inventory.get_free_slots() >= needed_slots
 
-    def take_damage(self, amount, hud, attacker=None):
+    def take_damage(self, amount, hud, attacker=None, attack_style=None):
         if self.dead or amount <= 0:
             return False
 
         self.health = max(0, self.health - amount)
+        self._record_damage_contribution(attacker, attack_style, amount)
         self._time_since_damage_taken = 0.0
         _log_combat(f"creature damaged target={self.get_target_name()} amount={amount} health={self.health:.1f}")
         if self.health == 0:
@@ -459,12 +530,14 @@ class BaseCreature:
             self.root.setColorScale(0.25, 0.25, 0.25, 0.35)
             self.root.setP(90)
             self._clear_prompt(hud)
+            self._grant_kill_xp(attacker, attack_style)
             self._on_death()
             
-            # Notify QuestManager if attacker is player
-            from game.entities.player import Player
-            if isinstance(attacker, Player) and hasattr(attacker, "_app") and attacker._app:
-                attacker._app.quest_manager.notify_action("kill", self.__class__.__name__)
+            # Notify QuestManager
+            import builtins
+            app = builtins.base
+            if app and hasattr(app, "quest_manager"):
+                app.quest_manager.notify_action("kill", self.creature_id)
                 
             return True
 
@@ -480,6 +553,34 @@ class BaseCreature:
         self.root.setColorScale(1.3, 0.6, 0.6, 1)
         self._hurt_flash_timer = HURT_FLASH_TIME
         return False
+
+    def _grant_kill_xp(self, attacker, attack_style):
+        if attacker is None or not hasattr(attacker, "grant_combat_xp"):
+            return
+        xp_reward = self.data.get("xp_reward", max(1, int(self.max_health * 0.4)))
+        damage_total = sum(self._player_damage_by_style.values())
+        if damage_total > 0:
+            xp_by_style = {
+                style: round(xp_reward * (damage / damage_total))
+                for style, damage in self._player_damage_by_style.items()
+            }
+            remainder = xp_reward - sum(xp_by_style.values())
+            if remainder > 0:
+                favored_style = max(self._player_damage_by_style, key=self._player_damage_by_style.get)
+                xp_by_style[favored_style] += remainder
+            for style, xp_amount in xp_by_style.items():
+                if xp_amount > 0:
+                    attacker.grant_combat_xp(style, xp_amount)
+            return
+        if attack_style in PLAYER_XP_STYLES:
+            attacker.grant_combat_xp(attack_style, xp_reward)
+
+    def _record_damage_contribution(self, attacker, attack_style, amount):
+        if attacker is None or attack_style not in self._player_damage_by_style:
+            return
+        if not hasattr(attacker, "grant_combat_xp"):
+            return
+        self._player_damage_by_style[attack_style] += amount
 
     def _on_death(self):
         pass
@@ -506,6 +607,7 @@ class BaseCreature:
         self._dead_time = 0.0
         self._loot = []
         self._combat_target = None
+        self._player_damage_by_style = {style: 0.0 for style in PLAYER_XP_STYLES}
         self._loot_label_np.hide()
         self._clear_projectiles()
 
@@ -520,7 +622,15 @@ class BaseCreature:
         self._on_despawn()
 
     def _on_despawn(self):
-        pass
+        s = self.data.get("special", {})
+        c_type = s.get("spawn_carcass")
+        if c_type:
+            from game.world.resources import AnimalCarcass
+            import builtins
+            app = builtins.base
+            if app and app._active_level:
+                carcass = AnimalCarcass(self.render, self.bullet_world, self.pos, animal_type=c_type)
+                app._active_level.resources.append(carcass)
 
     def remove_from_world(self, hud=None):
         self._clear_prompt(hud)
@@ -544,7 +654,9 @@ class BaseCreature:
         return not self.dead
 
     def get_target_point(self):
-        return self.pos + Vec3(0, 0, 2.2)
+        m_type = self.data.get("model_type", "humanoid")
+        z = 2.2 if m_type == "humanoid" else 1.0
+        return self.pos + Vec3(0, 0, z)
 
     def get_target_name(self):
         return self._label_np.node().getText()
@@ -559,9 +671,22 @@ class BaseCreature:
         return self.pos.z <= projectile_pos.z <= self.pos.z + HOSTILE_HIT_HEIGHT
 
     def _roll_loot(self):
-        loot = [("gold", self._rng.randint(2, 6))]
-        if self._rng.random() < 0.55:
-            loot.append(("ore", self._rng.randint(1, 2)))
+        l_data = self.data.get("loot", {})
+        loot = []
+        
+        # Gold
+        g_range = l_data.get("gold", [2, 6])
+        loot.append(("gold", self._rng.randint(g_range[0], g_range[1])))
+        
+        # Guaranteed items
+        for item_id, qty in l_data.get("guaranteed", []):
+            loot.append((item_id, qty))
+            
+        # Extra items (chance)
+        for item_id, chance in l_data.get("extra_items", []):
+            if self._rng.random() < chance:
+                loot.append((item_id, 1))
+                
         return loot
 
     def _show_prompt(self, hud, msg):
@@ -614,170 +739,12 @@ class BaseCreature:
             target.take_damage(outcome["damage"], hud, attacker=self)
 
 
-class Scout(BaseCreature):
-    def _build_visual(self):
-        self.stats.set_base_stat("max_health", 40.0)
-        self.stats.set_base_stat("melee_damage", 8.0)
-        self.health = 40.0
-        
-        self._label_color = (1, 0.95, 0.8, 1)
-        self.model = HumanoidModel(
-            self.root,
-            skin_color=(0.9, 0.78, 0.62, 1.0),
-            tunic_color=(0.68, 0.24, 0.12, 1.0),
-        )
-
-        self._label_np = self._make_label("scout_label", "Scout", self._label_color, scale=1.1)
-        self._label_np.setPos(0, 0, 4.3)
-
-        loot_node = TextNode("scout_loot_label")
-        loot_node.setText(LOOT_INDICATOR_TEXT)
-        loot_node.setAlign(TextNode.ACenter)
-        loot_node.setTextColor(1, 0.9, 0.2, 1)
-        loot_node.setShadow(0.04, 0.04)
-        loot_node.setShadowColor(0, 0, 0, 0.8)
-        self._loot_label_np = self.root.attachNewNode(loot_node)
-        self._loot_label_np.setPos(0, 0, 1.1)
-        self._loot_label_np.setScale(0.9)
-        self._loot_label_np.setEffect(BillboardEffect.makePointEye())
-        self._loot_label_np.hide()
-
-
-class Ranger(BaseCreature):
-    def _build_visual(self):
-        self.stats.set_base_stat("max_health", 30.0)
-        self.stats.set_base_stat("ranged_damage", 6.0)
-        self.health = 30.0
-        
-        self._label_color = (0.88, 1, 0.78, 1)
-        self.model = HumanoidModel(
-            self.root,
-            skin_color=(0.82, 0.88, 0.6, 1.0),
-            tunic_color=(0.24, 0.48, 0.18, 1.0),
-        )
-
-        self._label_np = self._make_label("ranger_label", "Ranger", self._label_color, scale=1.0)
-        self._label_np.setPos(0, 0, 4.3)
-
-        loot_node = TextNode("ranger_loot_label")
-        loot_node.setText(LOOT_INDICATOR_TEXT)
-        loot_node.setAlign(TextNode.ACenter)
-        loot_node.setTextColor(1, 0.9, 0.2, 1)
-        loot_node.setShadow(0.04, 0.04)
-        loot_node.setShadowColor(0, 0, 0, 0.8)
-        self._loot_label_np = self.root.attachNewNode(loot_node)
-        self._loot_label_np.setPos(0, 0, 1.1)
-        self._loot_label_np.setScale(0.9)
-        self._loot_label_np.setEffect(BillboardEffect.makePointEye())
-        self._loot_label_np.hide()
-
-    def get_combat_profile(self):
-        profile = dict(RANGER_RANGED_PROFILE)
-        profile["damage"] = self.stats.get("ranged_damage")
-        return profile
-
-    def _roll_loot(self):
-        loot = super()._roll_loot()
-        if self._rng.random() < 0.7:
-            loot.append(("fish", 1))
-        return loot
-
-
-class Wolf(BaseCreature):
-    def _build_visual(self):
-        self.stats.set_base_stat("max_health", 50.0)
-        self.stats.set_base_stat("melee_damage", 12.0)
-        self.stats.set_base_stat("evasion", 0.15)
-        self.health = 50.0
-        
-        self._label_color = (0.9, 0.9, 0.9, 1)
-        self.model = CreatureModel(
-            self.root,
-            main_color=(0.35, 0.35, 0.38, 1.0),
-            size=(0.84, 1.68, 0.84)
-        )
-
-        self._label_np = self._make_label("wolf_label", "Wolf", self._label_color, scale=0.9)
-        self._label_np.setPos(0, 0, 2.8)
-
-        loot_node = TextNode("wolf_loot_label")
-        loot_node.setText(LOOT_INDICATOR_TEXT)
-        loot_node.setAlign(TextNode.ACenter)
-        loot_node.setTextColor(1, 0.9, 0.2, 1)
-        loot_node.setShadow(0.04, 0.04)
-        loot_node.setShadowColor(0, 0, 0, 0.8)
-        self._loot_label_np = self.root.attachNewNode(loot_node)
-        self._loot_label_np.setPos(0, 0, 1.1)
-        self._loot_label_np.setScale(0.9)
-        self._loot_label_np.setEffect(BillboardEffect.makePointEye())
-        self._loot_label_np.hide()
-
-    def _on_despawn(self):
-        # Spawn a carcass resource when the model despawns
-        from game.world.resources import AnimalCarcass
-        import builtins
-        app = builtins.base
-        if app and app._active_level:
-            carcass = AnimalCarcass(self.render, self.bullet_world, self.pos, animal_type="wolf")
-            app._active_level.resources.append(carcass)
-
-    def get_combat_profile(self):
-        profile = dict(WOLF_MELEE_PROFILE)
-        profile["damage"] = self.stats.get("melee_damage")
-        return profile
-
-    def _roll_loot(self):
-        loot = []
-        if self._rng.random() < 0.5:
-            loot.append(("gold", self._rng.randint(1, 3)))
-        return loot
-
-
-class Deer(BaseCreature):
-    @property
-    def is_hostile(self):
-        return False
-
-    def _build_visual(self):
-        self.stats.set_base_stat("max_health", 25.0)
-        self.stats.set_base_stat("evasion", 0.25)
-        self.health = 25.0
-        
-        self._label_color = (0.7, 0.9, 0.7, 1)
-        self.model = CreatureModel(
-            self.root,
-            main_color=(0.6, 0.45, 0.3, 1.0),
-            size=(0.7, 1.4, 0.9)
-        )
-
-        self._label_np = self._make_label("deer_label", "Deer", self._label_color, scale=0.8)
-        self._label_np.setPos(0, 0, 2.8)
-
-        loot_node = TextNode("deer_loot_label")
-        loot_node.setText(LOOT_INDICATOR_TEXT)
-        loot_node.setAlign(TextNode.ACenter)
-        loot_node.setTextColor(1, 0.9, 0.2, 1)
-        loot_node.setShadow(0.04, 0.04)
-        loot_node.setShadowColor(0, 0, 0, 0.8)
-        self._loot_label_np = self.root.attachNewNode(loot_node)
-        self._loot_label_np.setPos(0, 0, 1.1)
-        self._loot_label_np.setScale(0.9)
-        self._loot_label_np.setEffect(BillboardEffect.makePointEye())
-        self._loot_label_np.hide()
-
-    def _on_despawn(self):
-        # Spawn a carcass resource
-        from game.world.resources import AnimalCarcass
-        import builtins
-        app = builtins.base
-        if app and app._active_level:
-            carcass = AnimalCarcass(self.render, self.bullet_world, self.pos, animal_type="deer")
-            app._active_level.resources.append(carcass)
-
-    def _roll_loot(self):
-        return [("raw_meat", 1)]
-
-
 def _log_combat(message):
+    import builtins
+    app = getattr(builtins, "base", None)
+    if app is not None and hasattr(app, "hud"):
+        app.hud.add_combat_log(message)
     if DEBUG_COMBAT_LOGS:
         print(f"[combat] {message}")
+
+load_creature_defs()

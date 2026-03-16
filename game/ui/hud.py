@@ -1,6 +1,9 @@
 """HUD panels, prompts, and draggable inventory windows."""
 
+import builtins
+from datetime import datetime
 import math
+import game.services.crafting as crafting_svc
 
 from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText, DirectScrolledFrame
 from direct.gui import DirectGuiGlobals as DGG
@@ -10,6 +13,7 @@ from game.systems.skills import SKILLS
 from game.ui.widgets import (
     DraggableWindow,
     ItemSlotCollection,
+    TOOLTIP_MANAGER,
     build_equipment_slot_defs,
     build_grid_slot_defs,
 )
@@ -24,6 +28,7 @@ BAR_HEIGHT = 0.04
 MENU_BTN_WIDTH = 0.18
 MENU_BTN_HEIGHT = 0.06
 ACTION_BAR_Y = -0.88
+LOG_WINDOW_MAX = 200
 
 
 class HUD:
@@ -38,18 +43,27 @@ class HUD:
         self._inventory_slots = None
         self._equipment_slots = None
         self._skill_bars = {}
+        self._skill_meta_labels = {}
         self._stat_labels = {}
         self._quest_labels = []
+        self._game_log_entries = []
+        self._combat_log_entries = []
+        self._game_log_visible = False
+        self._combat_log_visible = False
 
         self._build_prompt()
         self._build_player_panel()
         self._build_target_panel()
         self._build_action_bar()
+        self._build_cast_bar()
         self._build_menu_buttons()
         self._build_quest_tracker()
         self._build_inventory_window()
         self._build_equipment_window()
         self._build_skill_window()
+        self._build_game_log_window()
+        self._build_combat_log_window()
+        self.inventory.add_listener(self.refresh_inventory)
 
     def _build_prompt(self):
         self._prompt_text = OnscreenText(
@@ -190,6 +204,7 @@ class HUD:
             pos=(-0.1, 0, 0)
         )
         OnscreenText(text="Melee", parent=self._melee_range_bg, pos=(0, -0.09), scale=0.025, fg=(0.8,0.8,0.8,1))
+        TOOLTIP_MANAGER.bind(self._melee_range_bg, "Melee auto-attack range indicator.\nGreen means your current target is in range.")
         
         self._ranged_range_bg = DirectFrame(
             parent=self._action_bar,
@@ -199,6 +214,7 @@ class HUD:
             pos=(0.1, 0, 0)
         )
         OnscreenText(text="Ranged", parent=self._ranged_range_bg, pos=(0, -0.09), scale=0.025, fg=(0.8,0.8,0.8,1))
+        TOOLTIP_MANAGER.bind(self._ranged_range_bg, "Ranged auto-attack range indicator.\nGreen means your current target is in range.")
 
     def refresh_range_indicators(self, melee_in, ranged_in):
         self._melee_range_bg["frameColor"] = (0.2, 0.6, 0.2, 1) if melee_in else (0.6, 0.2, 0.2, 1)
@@ -208,17 +224,150 @@ class HUD:
         self._melee_range_bg["frameColor"] = (0.2, 0.2, 0.2, 1)
         self._ranged_range_bg["frameColor"] = (0.2, 0.2, 0.2, 1)
 
+    def _build_cast_bar(self):
+        self._cast_bar_panel = DirectFrame(
+            frameColor=(0.05, 0.05, 0.05, 0.82),
+            frameSize=(-0.24, 0.24, -0.05, 0.05),
+            pos=(0, 0, -0.72),
+        )
+        self._cast_bar_label = OnscreenText(
+            text="",
+            parent=self._cast_bar_panel,
+            pos=(0, 0.012),
+            scale=0.03,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        DirectFrame(
+            parent=self._cast_bar_panel,
+            frameColor=(0.12, 0.12, 0.12, 1),
+            frameSize=(-0.2, 0.2, -0.03, -0.012),
+        )
+        self._cast_bar_fill = DirectFrame(
+            parent=self._cast_bar_panel,
+            frameColor=(0.82, 0.62, 0.18, 1),
+            frameSize=(-0.2, -0.2, -0.03, -0.012),
+        )
+        self._cast_bar_panel.hide()
+
+    def _build_game_log_window(self):
+        self._game_log_window = DraggableWindow(
+            "Game Log",
+            (0, 0.66, -0.72, 0.06),
+            (-1.1, 0, -0.1),
+            self._close_game_log,
+            resize_callback=self._layout_game_log_window,
+            resizable=True,
+        )
+        self._game_log_scroll = DirectScrolledFrame(
+            parent=self._game_log_window.body,
+            canvasSize=(0, 0.6, -0.1, 0),
+            frameSize=(0.02, 0.64, -0.68, -0.02),
+            frameColor=(0.06, 0.06, 0.06, 0.7),
+            scrollBarWidth=0.03,
+            pos=(0, 0, -0.02),
+        )
+        self._layout_game_log_window(self._game_log_window._frame_size)
+        self._game_log_window.hide()
+        self._game_log_labels = []
+
+    def _build_combat_log_window(self):
+        self._combat_log_window = DraggableWindow(
+            "Combat Log",
+            (0, 0.66, -0.72, 0.06),
+            (-0.35, 0, -0.1),
+            self._close_combat_log,
+            resize_callback=self._layout_combat_log_window,
+            resizable=True,
+        )
+        self._combat_log_scroll = DirectScrolledFrame(
+            parent=self._combat_log_window.body,
+            canvasSize=(0, 0.6, -0.1, 0),
+            frameSize=(0.02, 0.64, -0.68, -0.02),
+            frameColor=(0.06, 0.06, 0.06, 0.7),
+            scrollBarWidth=0.03,
+            pos=(0, 0, -0.02),
+        )
+        self._layout_combat_log_window(self._combat_log_window._frame_size)
+        self._combat_log_window.hide()
+        self._combat_log_labels = []
+
+    def _timestamp(self):
+        return datetime.now().strftime("[%H:%M:%S]")
+
+    def _layout_game_log_window(self, frame_size):
+        left, right, bottom, _top = frame_size
+        width = max(0.2, right - left - 0.04)
+        height = max(0.2, (_top - bottom) - 0.16)
+        self._game_log_scroll.setPos(left + 0.02, 0, bottom + 0.05)
+        self._game_log_scroll["frameSize"] = (0, width, 0, height)
+
+    def _layout_combat_log_window(self, frame_size):
+        left, right, bottom, _top = frame_size
+        width = max(0.2, right - left - 0.04)
+        height = max(0.2, (_top - bottom) - 0.16)
+        self._combat_log_scroll.setPos(left + 0.02, 0, bottom + 0.05)
+        self._combat_log_scroll["frameSize"] = (0, width, 0, height)
+
+    def add_log(self, msg):
+        self._append_log_entry(self._game_log_entries, self._game_log_labels, self._game_log_scroll, msg)
+
+    def add_combat_log(self, msg):
+        self._append_log_entry(self._combat_log_entries, self._combat_log_labels, self._combat_log_scroll, msg)
+
+    def _append_log_entry(self, entries, labels, scroll, msg):
+        if not msg:
+            return
+        entries.append(f"{self._timestamp()} {msg}")
+        if len(entries) > LOG_WINDOW_MAX:
+            del entries[:-LOG_WINDOW_MAX]
+        self._refresh_log_labels(entries, labels, scroll)
+
+    def _refresh_log_labels(self, entries, labels, scroll):
+        for label in labels:
+            label.destroy()
+        labels[:] = []
+        canvas = scroll.getCanvas()
+        y = -0.05
+        for entry in entries:
+            label = OnscreenText(
+                text=entry,
+                parent=canvas,
+                pos=(0.01, y),
+                scale=0.028,
+                fg=(0.88, 0.88, 0.9, 1),
+                align=TextNode.ALeft,
+                wordwrap=max(16, (scroll["frameSize"][1] - scroll["frameSize"][0]) * 26),
+            )
+            labels.append(label)
+            y -= 0.05
+        width = max(0.2, scroll["frameSize"][1] - scroll["frameSize"][0])
+        scroll["canvasSize"] = (0, width, min(-0.1, y - 0.02), 0)
+
+    def show_cast_progress(self, label, progress, total):
+        total = max(total, 0.001)
+        ratio = max(0.0, min(1.0, progress / total))
+        self._cast_bar_label.setText(f"{label} {progress:.1f}/{total:.1f}s")
+        self._cast_bar_fill["frameSize"] = (-0.2, -0.2 + 0.4 * ratio, -0.03, -0.012)
+        self._cast_bar_panel.show()
+
+    def hide_cast_progress(self):
+        self._cast_bar_panel.hide()
+
     def _build_menu_buttons(self):
         # Redesigned menu buttons at bottom right
-        start_x = 0.65
+        start_x = 0.22
         btn_y = -0.92
-        spacing = 0.21
+        spacing = 0.15
         
         self.menu_buttons = []
         buttons = [
             ("Inv (I)", self.toggle_inventory, (0.2, 0.3, 0.5, 1)),
             ("Equip (C)", self.toggle_equipment, (0.3, 0.5, 0.2, 1)),
             ("Skills (K)", self.toggle_skills, (0.5, 0.2, 0.2, 1)),
+            ("Log (L)", self.toggle_game_log, (0.35, 0.35, 0.35, 1)),
+            ("Combat (J)", self.toggle_combat_log, (0.45, 0.28, 0.18, 1)),
             ("Dev (F1)", self._on_dev_clicked, (0.4, 0.4, 0.4, 1)),
         ]
         
@@ -237,6 +386,7 @@ class HUD:
             # Add simple hover effect
             btn.bind(DGG.ENTER, lambda e, b=btn: b.setColorScale(1.2, 1.2, 1.2, 1))
             btn.bind(DGG.EXIT, lambda e, b=btn: b.setColorScale(1, 1, 1, 1))
+            TOOLTIP_MANAGER.bind(btn, self._menu_tooltip(text))
             self.menu_buttons.append(btn)
 
     def _on_dev_clicked(self):
@@ -351,6 +501,13 @@ class HUD:
         self._stat_labels = {}
         for i, (stat_key, label_text) in enumerate(stats_to_show):
             y = -0.12 - i * 0.045
+            hover_row = DirectFrame(
+                parent=body,
+                frameColor=(0, 0, 0, 0),
+                frameSize=(stat_start_x - 0.02, stat_start_x + 0.34, -0.02, 0.02),
+                pos=(0, 0, y),
+                relief=DGG.FLAT,
+            )
             OnscreenText(
                 text=label_text,
                 parent=body,
@@ -369,6 +526,7 @@ class HUD:
                 mayChange=True
             )
             self._stat_labels[stat_key] = val_lbl
+            TOOLTIP_MANAGER.bind(hover_row, self._stat_tooltip(stat_key, label_text))
             
         self._equip_window.hide()
 
@@ -388,15 +546,13 @@ class HUD:
             label.setText(text)
 
     def _build_skill_window(self):
-        # Increased height to fit more skills
-        self._skill_window = DraggableWindow("Skills", (0, 0.44, -0.85, 0.06), (-1.05, 0, -0.18), self._close_skills)
+        self._skill_window = DraggableWindow("Skills", (0, 0.64, -0.85, 0.06), (-1.05, 0, -0.18), self._close_skills)
         body = self._skill_window.body
         
-        # Use a ScrolledFrame
         scroll = DirectScrolledFrame(
             parent=body,
-            canvasSize=(0, 0.4, -len(SKILLS) * 0.12 - 0.05, 0),
-            frameSize=(0.01, 0.43, -0.8, 0),
+            canvasSize=(0, 0.6, -len(SKILLS) * 0.16 - 0.05, 0),
+            frameSize=(0.01, 0.63, -0.8, 0),
             frameColor=(0, 0, 0, 0),
             scrollBarWidth=0.03,
             pos=(0, 0, -0.02)
@@ -404,8 +560,9 @@ class HUD:
         canvas = scroll.getCanvas()
         
         self._skill_bars = {}
+        self._skill_meta_labels = {}
         for idx, skill in enumerate(SKILLS):
-            y = -0.06 - idx * 0.12
+            y = -0.06 - idx * 0.16
             lbl = OnscreenText(
                 text=f"{skill}  Lv 1",
                 parent=canvas,
@@ -415,19 +572,43 @@ class HUD:
                 align=TextNode.ALeft,
                 mayChange=True,
             )
+            meta = OnscreenText(
+                text="0 / 100 XP",
+                parent=canvas,
+                pos=(0.01, y - 0.04),
+                scale=0.026,
+                fg=(0.72, 0.72, 0.76, 1),
+                align=TextNode.ALeft,
+                mayChange=True,
+            )
             DirectFrame(
                 parent=canvas,
                 frameColor=(0.1, 0.1, 0.1, 1),
                 frameSize=(0, BAR_WIDTH, 0, BAR_HEIGHT),
-                pos=(0.01, 0, y - 0.045),
+                pos=(0.01, 0, y - 0.085),
             )
             bar_fill = DirectFrame(
                 parent=canvas,
                 frameColor=(0.2, 0.7, 0.2, 1),
                 frameSize=(0, 0.001, 0, BAR_HEIGHT),
-                pos=(0.01, 0, y - 0.045),
+                pos=(0.01, 0, y - 0.085),
             )
+            recipe_button = None
+            if any(recipe["skill"] == skill for recipe in crafting_svc.RECIPES.values()):
+                recipe_button = DirectButton(
+                    parent=canvas,
+                    text="Recipes",
+                    scale=0.032,
+                    pos=(0.48, 0, y - 0.06),
+                    frameSize=(-1.8, 1.8, -0.5, 1.0),
+                    frameColor=(0.28, 0.34, 0.46, 1),
+                    text_fg=(1, 1, 1, 1),
+                    command=self._open_skill_recipes,
+                    extraArgs=[skill],
+                )
+                TOOLTIP_MANAGER.bind(recipe_button, f"Browse {skill} recipes.\nAnywhere recipes can be crafted from this view.")
             self._skill_bars[skill] = (lbl, bar_fill)
+            self._skill_meta_labels[skill] = meta
         self.refresh_skills()
         self._skill_window.hide()
 
@@ -444,6 +625,7 @@ class HUD:
             level = self.skills.get_level(skill)
             xp_in, xp_max = self.skills.get_xp_progress(skill)
             label.setText(f"{skill}  Lv {level}")
+            self._skill_meta_labels[skill].setText(f"{xp_in:.0f} / {xp_max:.0f} XP")
             fill_w = BAR_WIDTH * (xp_in / xp_max)
             bar_fill["frameSize"] = (0, max(0.001, fill_w), 0, BAR_HEIGHT)
 
@@ -459,6 +641,12 @@ class HUD:
     def toggle_skills(self):
         self._set_skills_visible(not self._skill_visible)
 
+    def toggle_game_log(self):
+        self._set_game_log_visible(not self._game_log_visible)
+
+    def toggle_combat_log(self):
+        self._set_combat_log_visible(not self._combat_log_visible)
+
     def _close_inventory(self):
         self._set_inventory_visible(False)
 
@@ -467,6 +655,12 @@ class HUD:
 
     def _close_skills(self):
         self._set_skills_visible(False)
+
+    def _close_game_log(self):
+        self._set_game_log_visible(False)
+
+    def _close_combat_log(self):
+        self._set_combat_log_visible(False)
 
     def _set_inventory_visible(self, visible):
         self._inv_visible = visible
@@ -493,6 +687,51 @@ class HUD:
         else:
             self._skill_window.hide()
 
+    def _set_game_log_visible(self, visible):
+        self._game_log_visible = visible
+        if visible:
+            self._refresh_log_labels(self._game_log_entries, self._game_log_labels, self._game_log_scroll)
+            self._game_log_window.show()
+        else:
+            self._game_log_window.hide()
+
+    def _set_combat_log_visible(self, visible):
+        self._combat_log_visible = visible
+        if visible:
+            self._refresh_log_labels(self._combat_log_entries, self._combat_log_labels, self._combat_log_scroll)
+            self._combat_log_window.show()
+        else:
+            self._combat_log_window.hide()
+
     def _build_range_indicators(self):
         # Deprecated in favor of action bar
         pass
+
+    def _open_skill_recipes(self, skill):
+        if hasattr(self.player, "_app") and self.player._app and hasattr(self.player._app, "crafting_ui"):
+            self.player._app.crafting_ui.open_skill(skill)
+
+    def _menu_tooltip(self, button_text):
+        tips = {
+            "Inv (I)": "Open the inventory window.",
+            "Equip (C)": "Open the equipment and combat stats window.",
+            "Skills (K)": "Open the skills progression window.",
+            "Log (L)": "Open the game event log.",
+            "Combat (J)": "Open the combat log.",
+            "Dev (F1)": "Open the developer tools panel.",
+        }
+        return tips.get(button_text, button_text)
+
+    def _stat_tooltip(self, stat_key, label_text):
+        tips = {
+            "melee_damage": "Base damage used by melee auto-attacks.",
+            "ranged_damage": "Base damage used by ranged auto-attacks.",
+            "magic_damage": "Reserved for spell or magic-based attacks.",
+            "armor": "Reduces incoming damage through combat resolution.",
+            "accuracy": "Improves chance to land attacks.",
+            "evasion": "Chance to avoid incoming attacks.",
+            "crit_chance": "Chance for attacks to critically strike.",
+            "block_chance": "Chance to block with shields or defensive gear.",
+            "parry_chance": "Chance to parry weapon attacks.",
+        }
+        return f"{label_text}\n{tips.get(stat_key, 'Current derived combat stat.')}"

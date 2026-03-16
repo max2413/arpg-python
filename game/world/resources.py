@@ -33,6 +33,9 @@ class ResourceNode:
         self.respawn_timer = 0.0
         self.in_range = False
         self.blocker_np = None
+        self._prompt_shown = False
+        self._prompt_text = ""
+        self._showing_cast_progress = False
 
         self.root = NodePath("resource_root")
         self.root.reparentTo(render)
@@ -61,6 +64,26 @@ class ResourceNode:
         if self.state == HARVESTING:
             self.state = IDLE
             self.harvest_timer = 0.0
+
+    def _show_prompt(self, hud, text):
+        self._prompt_shown = True
+        self._prompt_text = text
+        hud.show_prompt(text)
+
+    def _clear_prompt(self, hud):
+        if self._prompt_shown:
+            hud.clear_prompt_if(self._prompt_text)
+        self._prompt_shown = False
+        self._prompt_text = ""
+
+    def _show_cast_progress(self, hud, label, progress, total):
+        self._showing_cast_progress = True
+        hud.show_cast_progress(label, progress, total)
+
+    def _hide_cast_progress(self, hud):
+        if self._showing_cast_progress:
+            hud.hide_cast_progress()
+        self._showing_cast_progress = False
 
     def _build_visuals(self):
         pass  # Overridden by subclasses
@@ -99,26 +122,30 @@ class ResourceNode:
 
         if self.state == IDLE:
             if self.in_range:
-                hud.show_prompt(f"Hold E to {self.verb} {self.item_id}")
+                self._show_prompt(hud, f"Hold E to {self.verb} {self.item_id}")
                 if self._e_held:
                     self.state = HARVESTING
                     self.harvest_timer = 0.0
+                    self._show_cast_progress(hud, self.verb.capitalize(), 0.0, self.harvest_time)
             else:
-                hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
+                self._clear_prompt(hud)
 
         elif self.state == HARVESTING:
             if not self.in_range or not self._e_held:
                 self.state = IDLE
                 self.harvest_timer = 0.0
-                hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
+                self._clear_prompt(hud)
+                self._hide_cast_progress(hud)
                 return
 
             self.harvest_timer += dt
-            hud.show_prompt(f"{self.verb.capitalize()}ing... {self.harvest_timer:.1f}/{self.harvest_time:.1f}s")
+            self._show_cast_progress(hud, self.verb.capitalize(), self.harvest_timer, self.harvest_time)
 
             if self.harvest_timer >= self.harvest_time:
+                self._hide_cast_progress(hud)
                 if inventory.is_full():
                     hud.show_prompt("Inventory full!")
+                    hud.add_log("Inventory full")
                     self.state = IDLE
                     self.harvest_timer = 0.0
                 else:
@@ -126,8 +153,10 @@ class ResourceNode:
                     levels = skills.add_xp(self.skill, self.xp_reward)
                     hud.refresh_inventory()
                     hud.refresh_skills()
+                    hud.add_log(f"+1 {self.item_id} | +{self.xp_reward} {self.skill} XP")
                     if levels > 0:
                         hud.show_prompt(f"{self.skill} level up! Level {skills.get_level(self.skill)}")
+                        hud.add_log(f"{self.skill} level up! Level {skills.get_level(self.skill)}")
                     
                     # Notify QuestManager
                     if hasattr(player, "_app") and player._app:
@@ -138,9 +167,11 @@ class ResourceNode:
                     self.state = DEPLETED
                     self.respawn_timer = 0.0
                     self._set_depleted_look()
+                    self._clear_prompt(hud)
 
         elif self.state == DEPLETED:
-            hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
+            self._clear_prompt(hud)
+            self._hide_cast_progress(hud)
 
         elif self.state == RESPAWNING:
             self.respawn_timer += dt

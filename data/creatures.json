@@ -1,0 +1,90 @@
+{
+  "scout": {
+    "name": "Scout",
+    "xp_reward": 16,
+    "model_type": "humanoid",
+    "ai_type": "hostile",
+    "stats": {
+      "max_health": 40.0,
+      "melee_damage": 8.0,
+      "evasion": 0.05
+    },
+    "visuals": {
+      "skin_color": [0.9, 0.78, 0.62, 1.0],
+      "tunic_color": [0.68, 0.24, 0.12, 1.0],
+      "label_color": [1.0, 0.95, 0.8, 1.0],
+      "label_scale": 1.1
+    },
+    "combat": {
+      "style": "melee"
+    }
+  },
+  "ranger": {
+    "name": "Ranger",
+    "xp_reward": 18,
+    "model_type": "humanoid",
+    "ai_type": "hostile",
+    "stats": {
+      "max_health": 30.0,
+      "ranged_damage": 6.0,
+      "evasion": 0.05
+    },
+    "visuals": {
+      "skin_color": [0.82, 0.88, 0.6, 1.0],
+      "tunic_color": [0.24, 0.48, 0.18, 1.0],
+      "label_color": [0.88, 1.0, 0.78, 1.0],
+      "label_scale": 1.0
+    },
+    "combat": {
+      "style": "ranged"
+    },
+    "loot": {
+      "extra_items": [["fish", 0.7]]
+    }
+  },
+  "wolf": {
+    "name": "Wolf",
+    "xp_reward": 24,
+    "model_type": "quadruped",
+    "ai_type": "hostile",
+    "stats": {
+      "max_health": 50.0,
+      "melee_damage": 12.0,
+      "evasion": 0.15
+    },
+    "visuals": {
+      "color": [0.35, 0.35, 0.38, 1.0],
+      "size": [0.84, 1.68, 0.84],
+      "label_color": [0.9, 0.9, 0.9, 1.0],
+      "label_scale": 0.9
+    },
+    "combat": {
+      "style": "melee"
+    },
+    "special": {
+      "spawn_carcass": "wolf"
+    }
+  },
+  "deer": {
+    "name": "Deer",
+    "xp_reward": 12,
+    "model_type": "quadruped",
+    "ai_type": "passive",
+    "stats": {
+      "max_health": 25.0,
+      "evasion": 0.25
+    },
+    "visuals": {
+      "color": [0.6, 0.45, 0.3, 1.0],
+      "size": [0.7, 1.4, 0.9],
+      "label_color": [0.7, 0.9, 0.7, 1.0],
+      "label_scale": 0.8
+    },
+    "special": {
+      "spawn_carcass": "deer"
+    },
+    "loot": {
+      "guaranteed": [["raw_meat", 1]]
+    }
+  }
+}

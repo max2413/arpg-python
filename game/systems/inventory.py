@@ -14,6 +14,7 @@ EQUIPMENT_SLOTS = {
     "chest": {"label": "Chest"},
     "legs": {"label": "Legs"},
     "weapon": {"label": "Weapon"},
+    "ranged": {"label": "Ranged"},
     "offhand": {"label": "Offhand"},
 }
 
@@ -40,6 +41,30 @@ def _load_items():
 
 ITEMS = _load_items()
 
+STAT_LABELS = {
+    "max_health": "Max Health",
+    "health_regen": "Health Regen",
+    "melee_damage": "Melee Damage",
+    "ranged_damage": "Ranged Damage",
+    "magic_damage": "Magic Damage",
+    "armor": "Armor",
+    "evasion": "Evasion",
+    "accuracy": "Accuracy",
+    "crit_chance": "Crit Chance",
+    "crit_mult": "Crit Damage",
+    "block_chance": "Block Chance",
+    "parry_chance": "Parry Chance",
+    "movement_speed": "Move Speed",
+}
+
+CATEGORY_LABELS = {
+    ITEM_CATEGORY_RAW: "Raw Material",
+    ITEM_CATEGORY_CURRENCY: "Currency",
+    ITEM_CATEGORY_EQUIPMENT: "Equipment",
+}
+
+RANGED_SLOT_SUBTYPES = {"bow", "crossbow", "wand", "staff"}
+
 def get_item_def(item_id):
     return ITEMS.get(item_id)
 
@@ -47,6 +72,53 @@ def get_item_def(item_id):
 def get_item_name(item_id):
     item_def = get_item_def(item_id)
     return item_def["name"] if item_def else item_id
+
+
+def get_item_category_label(item_id):
+    item_def = get_item_def(item_id)
+    if item_def is None:
+        return "Unknown"
+    return CATEGORY_LABELS.get(item_def.get("category"), item_def.get("category", "Unknown").replace("_", " ").title())
+
+
+def format_item_stat(stat_name, value):
+    label = STAT_LABELS.get(stat_name, stat_name.replace("_", " ").title())
+    if stat_name.endswith("_chance") or stat_name == "evasion":
+        amount = value * 100.0
+        return f"{label}: {amount:+.1f}%"
+    if stat_name == "accuracy":
+        return f"{label}: {value:+.2f}"
+    if stat_name == "crit_mult":
+        return f"{label}: +{value:.2f}x"
+    return f"{label}: {value:+.1f}"
+
+
+def build_item_tooltip(item_id, quantity=None):
+    item_def = get_item_def(item_id)
+    if item_def is None:
+        return item_id
+
+    lines = [item_def["name"]]
+    lines.append(get_item_category_label(item_id))
+
+    if quantity is not None and quantity > 1:
+        lines.append(f"Stack: {quantity}")
+
+    equipment_slot = item_def.get("equipment_slot")
+    if equipment_slot:
+        lines.append(f"Slot: {equipment_slot.title()}")
+
+    value = item_def.get("value")
+    if value is not None:
+        lines.append(f"Value: {value} gold")
+
+    stats = item_def.get("stats") or {}
+    if stats:
+        lines.append("")
+        for stat_name, stat_value in stats.items():
+            lines.append(format_item_stat(stat_name, stat_value))
+
+    return "\n".join(lines)
 
 
 def is_stackable(item_id):
@@ -66,6 +138,11 @@ def get_equipment_slot(item_id):
     return item_def.get("equipment_slot")
 
 
+def is_ranged_slot_item(item_id):
+    item_def = get_item_def(item_id)
+    return bool(item_def and item_def.get("subtype") in RANGED_SLOT_SUBTYPES)
+
+
 def clone_stack(stack):
     if stack is None:
         return None
@@ -75,7 +152,20 @@ def clone_stack(stack):
 class Inventory:
     def __init__(self, size=28):
         self.slots = [None] * size
-        self.equipment = EquipmentInventory()
+        self._listeners = []
+        self.equipment = EquipmentInventory(on_change=self._notify_changed)
+
+    def add_listener(self, callback):
+        if callback is not None and callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def remove_listener(self, callback):
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
+    def _notify_changed(self):
+        for callback in list(self._listeners):
+            callback()
 
     def slot_count(self):
         return len(self.slots)
@@ -91,6 +181,7 @@ class Inventory:
     def set_slot(self, slot_index, stack):
         if 0 <= slot_index < len(self.slots):
             self.slots[slot_index] = clone_stack(stack)
+            self._notify_changed()
             return True
         return False
 
@@ -119,6 +210,7 @@ class Inventory:
             self.slots[slot_index] = incoming
         else:
             target["quantity"] += incoming["quantity"]
+        self._notify_changed()
         return True
 
     def take_slot(self, slot_index):
@@ -126,12 +218,14 @@ class Inventory:
             return None
         stack = self.slots[slot_index]
         self.slots[slot_index] = None
+        self._notify_changed()
         return clone_stack(stack)
 
     def swap_slot(self, a, b):
         if not (0 <= a < len(self.slots) and 0 <= b < len(self.slots)):
             return False
         self.slots[a], self.slots[b] = self.slots[b], self.slots[a]
+        self._notify_changed()
         return True
 
     def move_slot(self, a, b):
@@ -146,12 +240,14 @@ class Inventory:
             for slot in self.slots:
                 if slot and slot["id"] == item_id:
                     slot["quantity"] += qty
+                    self._notify_changed()
                     return True
 
         free_slot = self.find_first_free_slot()
         if free_slot is None:
             return False
         self.slots[free_slot] = {"id": item_id, "quantity": qty}
+        self._notify_changed()
         return True
 
     def remove_item(self, item_id, qty=1):
@@ -168,6 +264,7 @@ class Inventory:
                 if slot["quantity"] == 0:
                     self.slots[i] = None
                 if remaining == 0:
+                    self._notify_changed()
                     return True
         return True
 
@@ -195,11 +292,27 @@ class Inventory:
         
         if "equipment" in data:
             self.equipment.from_dict(data["equipment"])
+        self._notify_changed()
 
 
 class EquipmentInventory:
-    def __init__(self):
+    def __init__(self, on_change=None):
         self.slots = {slot_name: None for slot_name in EQUIPMENT_SLOTS}
+        self._listeners = []
+        if on_change is not None:
+            self._listeners.append(on_change)
+
+    def add_listener(self, callback):
+        if callback is not None and callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def remove_listener(self, callback):
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
+    def _notify_changed(self):
+        for callback in list(self._listeners):
+            callback()
 
     def to_dict(self):
         return {"slots": copy.deepcopy(self.slots)}
@@ -208,6 +321,12 @@ class EquipmentInventory:
         slots_data = data.get("slots", {})
         for slot_name in self.slots:
             self.slots[slot_name] = clone_stack(slots_data.get(slot_name))
+        if "ranged" in self.slots and self.slots["ranged"] is None:
+            weapon_stack = self.slots.get("weapon")
+            if weapon_stack and is_ranged_slot_item(weapon_stack["id"]):
+                self.slots["ranged"] = weapon_stack
+                self.slots["weapon"] = None
+        self._notify_changed()
 
     def iter_slot_keys(self):
         return list(EQUIPMENT_SLOTS.keys())
@@ -219,6 +338,7 @@ class EquipmentInventory:
         if slot_name not in self.slots:
             return False
         self.slots[slot_name] = clone_stack(stack)
+        self._notify_changed()
         return True
 
     def can_place(self, slot_name, stack):
@@ -230,6 +350,7 @@ class EquipmentInventory:
         if not self.can_place(slot_name, stack):
             return False
         self.slots[slot_name] = clone_stack(stack)
+        self._notify_changed()
         return True
 
     def take_slot(self, slot_name):
@@ -237,6 +358,7 @@ class EquipmentInventory:
             return None
         stack = self.slots[slot_name]
         self.slots[slot_name] = None
+        self._notify_changed()
         return clone_stack(stack)
 
     def swap_slot(self, a, b):
@@ -249,6 +371,7 @@ class EquipmentInventory:
         if stack_a and not self.can_place(b, stack_a):
             return False
         self.slots[a], self.slots[b] = stack_b, stack_a
+        self._notify_changed()
         return True
 
     def move_slot(self, a, b):

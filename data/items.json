@@ -44,6 +44,24 @@
     "value": 8,
     "icon_spec": {"kind": "meat"}
   },
+  "cooked_fish": {
+    "name": "Cooked Fish",
+    "category": "raw_material",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.95, 0.7, 0.34, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "fish"}
+  },
+  "cooked_meat": {
+    "name": "Cooked Meat",
+    "category": "raw_material",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.72, 0.34, 0.18, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "meat"}
+  },
   "marigold": {
     "name": "Marigold",
     "category": "raw_material",
@@ -133,7 +151,7 @@
     "stackable": false,
     "color": [0.55, 0.35, 0.15, 1.0],
     "value": 25,
-    "equipment_slot": "weapon",
+    "equipment_slot": "ranged",
     "icon_spec": {"kind": "bow"},
     "stats": {"ranged_damage": 10.0, "crit_chance": 0.05}
   },
@@ -144,7 +162,7 @@
     "stackable": false,
     "color": [0.4, 0.25, 0.15, 1.0],
     "value": 35,
-    "equipment_slot": "weapon",
+    "equipment_slot": "ranged",
     "icon_spec": {"kind": "crossbow"},
     "stats": {"ranged_damage": 14.0, "crit_chance": 0.08, "crit_mult": 0.5}
   },
@@ -167,7 +185,7 @@
     "color": [0.6, 0.4, 0.2, 1.0],
     "accent_color": [0.2, 0.6, 0.9, 1.0],
     "value": 20,
-    "equipment_slot": "weapon",
+    "equipment_slot": "ranged",
     "icon_spec": {"kind": "staff"},
     "stats": {"magic_damage": 12.0, "parry_chance": 0.03}
   },
@@ -223,7 +241,7 @@
     "color": [0.8, 0.7, 0.5, 1.0],
     "accent_color": [0.9, 0.2, 0.2, 1.0],
     "value": 30,
-    "equipment_slot": "weapon",
+    "equipment_slot": "ranged",
     "icon_spec": {"kind": "wand"},
     "stats": {"magic_damage": 15.0, "crit_chance": 0.05}
   },

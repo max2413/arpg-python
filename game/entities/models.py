@@ -105,6 +105,10 @@ class HumanoidModel:
         
         self.head_anchor = self.head.attachNewNode("head_anchor")
         self.head_anchor.setPos(0, 0, 0)
+        self.back_anchor = self.root.attachNewNode("back_anchor")
+        self.back_anchor.setPos(0, -0.22, 2.65)
+        self.back_anchor.setH(90)
+        self.back_anchor.setP(-20)
 
         self.arrow_root = self.root.attachNewNode("direction_arrow")
         self.arrow_root.setPos(0, 0, HEAD_Z + 0.9)
@@ -212,6 +216,8 @@ class HumanoidModel:
             m.reparentTo(self.r_hand_anchor)
         elif slot == "offhand":
             m.reparentTo(self.l_hand_anchor)
+        elif slot == "ranged":
+            m.reparentTo(self.back_anchor)
         elif slot == "head":
             m.reparentTo(self.head_anchor)
         elif slot == "chest":

@@ -20,6 +20,11 @@ SLOT_GAP = 0.004
 SAVE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "data",
+    "bank.json",
+)
+LEGACY_SAVE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "data",
     "save.json",
 )
 BANK_SCALE = 2.0
@@ -110,6 +115,8 @@ class Bank(InteractableNpc):
             SLOT_SIZE,
             on_change=self._on_inventory_changed,
         )
+        self._bank_slots.transfer_targets = [self._player_slots]
+        self._player_slots.transfer_targets = [self._bank_slots]
 
     def _on_inventory_changed(self):
         self._save()
@@ -128,6 +135,15 @@ class Bank(InteractableNpc):
             try:
                 with open(SAVE_PATH) as handle:
                     self.bank_inv.from_dict(json.load(handle))
+            except Exception:
+                pass
+            return
+        if os.path.exists(LEGACY_SAVE_PATH):
+            try:
+                with open(LEGACY_SAVE_PATH) as handle:
+                    data = json.load(handle)
+                if "slots" in data and "inventory" not in data:
+                    self.bank_inv.from_dict(data)
             except Exception:
                 pass
 

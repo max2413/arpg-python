@@ -21,6 +21,7 @@ class QuestManager:
         if quest.id not in self.completed_ids and not any(q.id == quest.id for q in self.active_quests):
             self.active_quests.append(quest)
             self.app.hud.show_prompt(f"New Quest: {quest.name}")
+            self.app.hud.add_log(f"New Quest: {quest.name}")
             return True
         return False
 
@@ -55,6 +56,7 @@ class QuestManager:
                 self.app.skills.add_xp(skill, amount)
         
         self.app.hud.show_prompt(f"Quest Completed: {quest.name}!")
+        self.app.hud.add_log(f"Quest Completed: {quest.name}")
         self.app.hud.refresh_inventory()
         self.app.hud.refresh_skills()
 
@@ -83,7 +85,7 @@ def create_tutorial_quest():
         "tutorial_basics",
         "The Hunter's Path",
         [
-            {"text": "Kill a Wolf", "count": 0, "target": 1, "type": "kill", "id": "Wolf"},
+            {"text": "Kill a Wolf", "count": 0, "target": 1, "type": "kill", "id": "wolf"},
             {"text": "Skin a Wolf Carcass", "count": 0, "target": 1, "type": "skin", "id": "leather"},
             {"text": "Gather Wood and Ore", "count": 0, "target": 2, "type": "gather", "id": "any"}, # Simplified
             {"text": "Craft a Bronze Sword", "count": 0, "target": 1, "type": "craft", "id": "bronze_sword"}

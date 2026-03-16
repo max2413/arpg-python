@@ -8,7 +8,7 @@ from panda3d.core import TextNode, Vec3
 
 from game.ui.widgets import DraggableWindow, create_item_icon
 from game.systems.inventory import ITEMS, get_item_def
-from game.entities.creatures import Scout, Ranger, Wolf
+from game.entities.creatures import Creature
 from game.services.vendor import Vendor
 
 class DevMenu(DraggableWindow):
@@ -93,24 +93,25 @@ class DevMenu(DraggableWindow):
             align=TextNode.ACenter
         )
         
-        spawn_types = [
-            ("Scout", Scout),
-            ("Ranger", Ranger),
-            ("Wolf", Wolf),
+        spawn_options = [
+            ("Scout", "scout"),
+            ("Ranger", "ranger"),
+            ("Wolf", "wolf"),
+            ("Deer", "deer"),
             ("Vendor", Vendor)
         ]
         
-        for i, (name, cls) in enumerate(spawn_types):
+        for i, (name, target) in enumerate(spawn_options):
             DirectButton(
                 parent=self.body,
                 text=name,
                 scale=0.045,
-                pos=(-0.4 + i*0.27, 0, -0.3),
-                frameSize=(-2.5, 2.5, -0.6, 1.2),
+                pos=(-0.45 + i*0.23, 0, -0.3),
+                frameSize=(-2.2, 2.2, -0.6, 1.2),
                 frameColor=(0.25, 0.25, 0.25, 1),
                 text_fg=(1, 1, 1, 1),
                 command=self._spawn_entity,
-                extraArgs=[cls]
+                extraArgs=[target]
             )
 
         # Utilities
@@ -164,7 +165,7 @@ class DevMenu(DraggableWindow):
         else:
             self.app.hud.show_prompt("Inventory Full!")
 
-    def _spawn_entity(self, cls):
+    def _spawn_entity(self, target):
         active_level = self.app._active_level
         if active_level is None:
             self.app.hud.show_prompt("No active level!")
@@ -176,20 +177,23 @@ class DevMenu(DraggableWindow):
         offset = Vec3(-math.sin(heading_rad) * 5, math.cos(heading_rad) * 5, 0)
         spawn_pos = pos + offset
         
-        if cls == Vendor:
-            entity = cls(self.app.render, self.app.bullet_world, spawn_pos, self.app.player.inventory)
+        if target == Vendor:
+            entity = target(self.app.render, self.app.bullet_world, spawn_pos, self.app.player.inventory)
             active_level.interactables.append(entity)
+            name = "Vendor"
         else:
-            entity = cls(
+            entity = Creature(
                 self.app.render,
                 spawn_pos,
+                creature_id=target,
                 patrol_center=spawn_pos,
                 terrain=self.app.player.terrain,
                 bullet_world=self.app.bullet_world
             )
             active_level.hostiles.append(entity)
+            name = target.capitalize()
         
-        self.app.hud.show_prompt(f"Spawned {cls.__name__}")
+        self.app.hud.show_prompt(f"Spawned {name}")
 
     def _heal_player(self):
         self.app.player.heal_full()

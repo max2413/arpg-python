@@ -13,7 +13,7 @@ from panda3d.core import (
     TransparencyAttrib,
 )
 
-from game.entities.creatures import Scout, Ranger, Wolf, Deer
+from game.entities.creatures import Creature
 from game.world.resources import Tree, Rock, FishingSpot, HerbPatch
 
 WORLD_HALF = 500
@@ -160,11 +160,11 @@ def generate_world(render, bullet_world, terrain, seed=42, parent=None, layout=N
             kind = entry["type"]
             pos = tuple(entry["pos"])
             patrol_center = tuple(entry.get("patrol_center", entry["pos"]))
-            hostile_cls = Ranger if kind in ("spitter", "ranger") else (Wolf if kind == "wolf" else Scout)
             hostiles.append(
-                hostile_cls(
+                Creature(
                     scene_root,
                     pos,
+                    creature_id=kind,
                     patrol_center=patrol_center,
                     terrain=terrain,
                     bullet_world=bullet_world,
@@ -214,7 +214,7 @@ def _build_layout(seed, river_paths, forest_centers, ore_centers, resources, hos
     for hostile in hostiles:
         layout["hostiles"].append(
             {
-                "type": "ranger" if isinstance(hostile, Ranger) else ("wolf" if isinstance(hostile, Wolf) else "scout"),
+                "type": hostile.creature_id,
                 "pos": [hostile.pos.x, hostile.pos.y, hostile.pos.z],
                 "patrol_center": [hostile.patrol_center.x, hostile.patrol_center.y, hostile.patrol_center.z],
             }
@@ -505,7 +505,7 @@ def _generate_ore_patches(rng, render, bullet_world, terrain, occupied, resource
 
 
 def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
-    def _spawn(count, hostile_cls):
+    def _spawn(count, creature_id):
         for _ in range(count):
             for _ in range(150):
                 angle = rng.uniform(0.0, math.tau)
@@ -520,9 +520,10 @@ def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
                     continue
                 z = terrain.height_at(x, y)
                 occupied.append((x, y))
-                hostile = hostile_cls(
+                hostile = Creature(
                     render,
                     (x, y, z),
+                    creature_id=creature_id,
                     patrol_center=(x, y, z),
                     terrain=terrain,
                     bullet_world=bullet_world,
@@ -530,10 +531,10 @@ def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
                 hostiles.append(hostile)
                 break
 
-    _spawn(HOSTILE_COUNT, Scout)
-    _spawn(RANGER_COUNT, Ranger)
-    _spawn(WOLF_COUNT, Wolf)
-    _spawn(DEER_COUNT, Deer)
+    _spawn(HOSTILE_COUNT, "scout")
+    _spawn(RANGER_COUNT, "ranger")
+    _spawn(WOLF_COUNT, "wolf")
+    _spawn(DEER_COUNT, "deer")
 
 
 def _generate_herbs(rng, render, bullet_world, terrain, occupied, resources, cx, cy):

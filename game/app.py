@@ -16,8 +16,9 @@ from panda3d.core import (
 )
 
 from game.core.camera import CameraController
+from game.core.selection import SelectionManager
 from game.entities.player import Player
-from game.systems.combat import in_attack_range
+from game.systems.combat_manager import CombatManager
 from game.systems.inventory import Inventory
 from game.systems.skills import Skills
 from game.systems.persistence import save_game, load_game
@@ -25,13 +26,11 @@ from game.systems.quests import QuestManager, create_tutorial_quest
 from game.ui.hud import HUD
 from game.ui.dev_menu import DevMenu
 from game.ui.crafting_ui import CraftingUI
+from game.entities.creatures import load_creature_defs
 from game.services.crafting import load_recipes
 from game.world.levels import LevelManager
 
 RESPAWN_DELAY = 3.0
-COMBAT_TICK = 0.2
-TAB_TARGET_RANGE = 96.0
-TAB_TARGET_MIN_DOT = 0.45
 PLAYER_TEST_DROP_HEIGHT = 14.0
 
 
@@ -48,8 +47,6 @@ class Game(ShowBase):
         self._pause_ui = None
         self._respawn_timer = 0.0
         self._was_player_dead = False
-        self._selected_target = None
-        self._combat_tick_accum = 0.0
         self._spawn_point = Vec3(0, 0, PLAYER_TEST_DROP_HEIGHT)
         self._collision_debug_enabled = False
         self._collision_debug_np = None
@@ -62,21 +59,22 @@ class Game(ShowBase):
         self.skills = Skills()
         self.quest_manager = QuestManager(self)
         load_game(self.inventory, self.skills, self.quest_manager)
-        
-        self.inventory.add_item("gold", 1000) # Ensure some gold for testing
         self._setup_lighting()
         self.player = Player(self.render, self.bullet_world, self.inventory, terrain=None)
         self.player.stats.skills = self.skills
         self.player.stats.recalculate()
         self.cam_controller = CameraController(self.cam, self.player, self.bullet_world)
+        load_recipes()
         self.hud = HUD(self.inventory, self.skills, player=self.player)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
         
+        self.selection_manager = SelectionManager(self)
+        self.combat_manager = CombatManager(self)
+
         if not self.quest_manager.active_quests and not self.quest_manager.completed_ids:
             self.quest_manager.start_quest(create_tutorial_quest())
-        
+
         self.crafting_ui = CraftingUI(self)
-        load_recipes()
         
         self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
         self._load_level("overworld", "default", force_regenerate=True)
@@ -86,12 +84,14 @@ class Game(ShowBase):
         self.accept("i", self.hud.toggle_inventory)
         self.accept("c", self.hud.toggle_equipment)
         self.accept("k", self.hud.toggle_skills)
+        self.accept("l", self.hud.toggle_game_log)
+        self.accept("j", self.hud.toggle_combat_log)
         self.accept("f1", self.dev_menu.toggle)
         self.accept("escape", self._on_escape)
         self.accept("e", self._on_e_pressed)
         self.accept("e-up", self._on_e_released)
         self.accept("mouse1", self._on_mouse1)
-        self.accept("tab", self._on_tab_target)
+        self.accept("tab", self.selection_manager.on_tab_target)
         self.accept("1", self._on_melee_ability)
         self.accept("2", self._on_ranged_ability)
         self.accept("f3", self._toggle_collision_debug)
@@ -210,7 +210,7 @@ class Game(ShowBase):
         )
 
     def _save_current_game(self):
-        save_game(self.inventory, self.skills)
+        save_game(self.inventory, self.skills, self.quest_manager)
         if hasattr(self, "hud"):
             self.hud.show_prompt("Game Saved")
 
@@ -236,7 +236,7 @@ class Game(ShowBase):
         return closed
 
     def _load_level(self, level_id, entry_key, force_regenerate=False):
-        self._set_selected_target(None)
+        self.selection_manager.set_selected_target(None)
         self.player.clear_auto_attack()
         self.player._clear_projectiles()
         self._close_level_ui()
@@ -276,7 +276,7 @@ class Game(ShowBase):
     def _on_mouse1(self):
         if self._paused or self.player.dead or self._any_ui_open():
             return
-        self._pick_target()
+        self.selection_manager.pick_target()
 
     def _on_e_released(self):
         if self.player.dead:
@@ -293,103 +293,10 @@ class Game(ShowBase):
         self._open_pause()
 
     def _on_melee_ability(self):
-        self._begin_auto_attack("melee", "Target too far for melee")
+        self.combat_manager.begin_auto_attack("melee", "Target too far for melee")
 
     def _on_ranged_ability(self):
-        self._begin_auto_attack("ranged", "Target too far for ranged")
-
-    def _begin_auto_attack(self, style, fail_msg):
-        if self._paused or self.player.dead:
-            return
-        target = self._selected_target
-        if target is None or not target.is_targetable():
-            self.hud.show_prompt("No target selected")
-            return
-
-        profile = self.player.get_combat_profile(style)
-        if profile is None:
-            return
-        if not in_attack_range(self.player.get_pos(), target.get_target_point(), profile):
-            self.hud.show_prompt(fail_msg)
-            return
-
-        self.player.face_target(target.get_target_point())
-        self.player.start_auto_attack(style)
-        self.hud.show_prompt(f"Auto attacking with {profile['name']}")
-
-    def _set_selected_target(self, hostile):
-        if self._selected_target is hostile:
-            return
-        if self._selected_target is not None:
-            self._selected_target.set_targeted(False)
-        self._selected_target = hostile
-        if self._selected_target is not None:
-            self._selected_target.set_targeted(True)
-            self.hud.show_prompt(f"Targeted {self._selected_target.get_target_name()}")
-        else:
-            self.player.clear_auto_attack()
-            self.hud.clear_target()
-
-    def _pick_target(self):
-        if not self.mouseWatcherNode.hasMouse():
-            return
-
-        mouse = self.mouseWatcherNode.getMouse()
-        best = None
-        best_score = None
-        screen_pt = Point2()
-
-        for hostile in self._active_level.hostiles:
-            if not hostile.is_targetable():
-                continue
-            world_pt = hostile.get_target_point()
-            camera_pt = self.cam.getRelativePoint(self.render, Point3(world_pt.x, world_pt.y, world_pt.z))
-            if camera_pt.y <= 0:
-                continue
-            if not self.camLens.project(camera_pt, screen_pt):
-                continue
-            dx = screen_pt.x - mouse.x
-            dy = screen_pt.y - mouse.y
-            score = dx * dx + dy * dy
-            if score > 0.03:
-                continue
-            if best_score is None or score < best_score:
-                best = hostile
-                best_score = score
-
-        self._set_selected_target(best)
-
-    def _on_tab_target(self):
-        if self._paused or self.player.dead or self._modal_ui_open():
-            return
-
-        player_pos = self.player.get_pos()
-        heading_rad = math.radians(self.player.get_heading())
-        forward = Vec3(-math.sin(heading_rad), math.cos(heading_rad), 0)
-        best = None
-        best_score = None
-
-        for hostile in self._active_level.hostiles:
-            if not hostile.is_targetable():
-                continue
-            to_target = hostile.get_target_point() - player_pos
-            to_target.z = 0
-            distance = to_target.length()
-            if distance <= 0.001 or distance > TAB_TARGET_RANGE:
-                continue
-            to_target.normalize()
-            dot = forward.dot(to_target)
-            if dot < TAB_TARGET_MIN_DOT:
-                continue
-            score = dot * 100.0 - distance
-            if best_score is None or score > best_score:
-                best = hostile
-                best_score = score
-
-        if best is not None:
-            self._set_selected_target(best)
-        else:
-            self.hud.show_prompt("No enemy in front")
+        self.combat_manager.begin_auto_attack("ranged", "Target too far for ranged")
 
     def update(self, task):
         if self._paused:
@@ -397,7 +304,6 @@ class Game(ShowBase):
 
         dt = globalClock.getDt()  # noqa: F821 - Panda3D global
         dt = min(dt, 0.05)
-        self._combat_tick_accum += dt
 
         self.bullet_world.doPhysics(dt)
 
@@ -421,23 +327,19 @@ class Game(ShowBase):
         for hostile in self._active_level.hostiles:
             hostile.update(dt, self.player, self.hud)
 
-        while self._combat_tick_accum >= COMBAT_TICK:
-            self._combat_tick_accum -= COMBAT_TICK
-            self.player.combat_tick(COMBAT_TICK, self._selected_target, self.hud)
-            for hostile in self._active_level.hostiles:
-                hostile.combat_tick(COMBAT_TICK, self.player, self.hud)
+        self.combat_manager.update(dt)
+        self.selection_manager.update()
 
         self.player.update_projectiles(dt, self.hud)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
 
-        if self._selected_target is not None and not self._selected_target.is_targetable():
-            self._set_selected_target(None)
-        elif self._selected_target is not None:
-            distance = self.player.distance_to(self._selected_target.get_target_point())
+        target = self.selection_manager.selected_target
+        if target is not None:
+            distance = self.player.distance_to(target.get_target_point())
             self.hud.refresh_target(
-                self._selected_target.get_target_name(),
-                self._selected_target.health,
-                self._selected_target.max_health,
+                target.get_target_name(),
+                target.health,
+                target.max_health,
             )
             self.hud.refresh_range_indicators(
                 distance <= self.player.melee_ability_range,

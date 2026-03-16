@@ -6,8 +6,8 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText, Direct
 from direct.gui import DirectGuiGlobals as DGG
 from panda3d.core import TextNode
 
-from game.ui.widgets import DraggableWindow, create_item_icon
-from game.systems.inventory import get_item_def
+from game.ui.widgets import DraggableWindow, TOOLTIP_MANAGER, create_item_icon
+from game.systems.inventory import build_item_tooltip, get_item_def, get_item_name
 import game.services.crafting as crafting_svc
 
 class CraftingUI(DraggableWindow):
@@ -21,6 +21,7 @@ class CraftingUI(DraggableWindow):
         )
         self._station_type = None
         self._station_obj = None
+        self._skill_filter = None
         self._widgets = []
         
         self.hide()
@@ -28,7 +29,16 @@ class CraftingUI(DraggableWindow):
     def open(self, station_type, station_obj):
         self._station_type = station_type
         self._station_obj = station_obj
+        self._skill_filter = None
         self.title_label.setText(f"Crafting - {station_type.capitalize()}")
+        self.show()
+        self.refresh()
+
+    def open_skill(self, skill_name):
+        self._station_type = None
+        self._station_obj = None
+        self._skill_filter = skill_name
+        self.title_label.setText(f"Recipes - {skill_name}")
         self.show()
         self.refresh()
 
@@ -37,9 +47,13 @@ class CraftingUI(DraggableWindow):
             w.destroy()
         self._widgets = []
 
+        header_text = "Available Recipes"
+        if self._skill_filter:
+            header_text = f"{self._skill_filter} Recipes"
+
         # Header
         self._widgets.append(OnscreenText(
-            text=f"Available Recipes",
+            text=header_text,
             parent=self.body,
             pos=(0, 0.52),
             scale=0.045,
@@ -47,14 +61,24 @@ class CraftingUI(DraggableWindow):
             align=TextNode.ACenter
         ))
 
+        if self._skill_filter:
+            self._widgets.append(OnscreenText(
+                text="Browse recipes anywhere. Crafting still requires the listed station unless marked Anywhere.",
+                parent=self.body,
+                pos=(0, 0.46),
+                scale=0.026,
+                fg=(0.75, 0.75, 0.78, 1),
+                align=TextNode.ACenter
+            ))
+
         # Scrolled list of recipes
         scroll = DirectScrolledFrame(
             parent=self.body,
             canvasSize=(-0.6, 0.6, -1.0, 0),
-            frameSize=(-0.65, 0.65, -0.6, 0.45),
+            frameSize=(-0.65, 0.65, -0.6, 0.4),
             frameColor=(0.1, 0.1, 0.1, 1),
             scrollBarWidth=0.04,
-            pos=(0, 0, 0)
+            pos=(0, 0, -0.04)
         )
         self._widgets.append(scroll)
         canvas = scroll.getCanvas()
@@ -62,7 +86,9 @@ class CraftingUI(DraggableWindow):
         y = -0.08
         count = 0
         for rid, recipe in crafting_svc.RECIPES.items():
-            if recipe["station"] != self._station_type:
+            if self._skill_filter and recipe["skill"] != self._skill_filter:
+                continue
+            if self._station_type and recipe["station"] != self._station_type:
                 continue
             
             self._build_recipe_row(canvas, rid, recipe, y)
@@ -83,10 +109,12 @@ class CraftingUI(DraggableWindow):
             scale=0.12
         )
         create_item_icon(icon_root, item_def)
+        TOOLTIP_MANAGER.bind(icon_root, lambda item_id=recipe["output"]["id"], qty=recipe["output"]["qty"]: build_item_tooltip(item_id, quantity=qty))
 
         # Name and Skill level
         skill_lvl = self.app.skills.get_level(recipe["skill"])
         can_craft_lvl = skill_lvl >= recipe["level"]
+        station_name = "Anywhere" if recipe["station"] == "any" else recipe["station"].capitalize()
         color = (1, 1, 1, 1) if can_craft_lvl else (0.8, 0.3, 0.3, 1)
         
         OnscreenText(
@@ -95,6 +123,14 @@ class CraftingUI(DraggableWindow):
             pos=(-0.44, y + 0.02),
             scale=0.035,
             fg=color,
+            align=TextNode.ALeft
+        )
+        OnscreenText(
+            text=f"Station: {station_name}",
+            parent=parent,
+            pos=(0.02, y + 0.02),
+            scale=0.028,
+            fg=(0.72, 0.72, 0.78, 1),
             align=TextNode.ALeft
         )
 
@@ -117,10 +153,11 @@ class CraftingUI(DraggableWindow):
         )
 
         # Craft Button
-        can_craft = can_craft_lvl and has_mats
-        DirectButton(
+        can_use_station = self._can_access_recipe(recipe)
+        can_craft = can_craft_lvl and has_mats and can_use_station
+        craft_button = DirectButton(
             parent=parent,
-            text="Craft",
+            text="Craft" if can_use_station else "Need Station",
             scale=0.04,
             pos=(0.45, 0, y),
             frameSize=(-2, 2, -0.6, 1.2),
@@ -130,6 +167,7 @@ class CraftingUI(DraggableWindow):
             extraArgs=[rid, recipe],
             state=DGG.NORMAL if can_craft else DGG.DISABLED
         )
+        TOOLTIP_MANAGER.bind(craft_button, lambda recipe=recipe: self._recipe_tooltip(recipe))
 
     def _do_craft(self, rid, recipe):
         # Double check mats
@@ -154,9 +192,31 @@ class CraftingUI(DraggableWindow):
         
         # Feedback
         self.app.hud.show_prompt(f"Crafted {recipe['name']}! (+{recipe['xp']} {recipe['skill']} XP)")
+        self.app.hud.add_log(f"Crafted {recipe['name']} | +{recipe['xp']} {recipe['skill']} XP")
         if lvl_up > 0:
             self.app.hud.show_prompt(f"{recipe['skill']} level up! Level {self.app.skills.get_level(recipe['skill'])}")
+            self.app.hud.add_log(f"{recipe['skill']} level up! Level {self.app.skills.get_level(recipe['skill'])}")
         
         self.app.hud.refresh_inventory()
         self.app.hud.refresh_skills()
         self.refresh()
+
+    def _recipe_tooltip(self, recipe):
+        lines = [
+            recipe["name"],
+            f"Skill: {recipe['skill']} Lv {recipe['level']}",
+            f"Station: {'Anywhere' if recipe['station'] == 'any' else recipe['station'].capitalize()}",
+            f"Produces: {recipe['output']['qty']}x {get_item_name(recipe['output']['id'])}",
+            f"XP: {recipe['xp']}",
+            "",
+            "Requires:",
+        ]
+        for item_id, qty in recipe["inputs"].items():
+            owned = self.app.inventory.count_item(item_id)
+            lines.append(f"{qty}x {get_item_name(item_id)} ({owned} owned)")
+        return "\n".join(lines)
+
+    def _can_access_recipe(self, recipe):
+        if recipe["station"] == "any":
+            return True
+        return self._station_type == recipe["station"]

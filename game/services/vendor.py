@@ -1,10 +1,11 @@
 """Vendor NPC and draggable shop UI."""
 
-from panda3d.core import TextNode, Vec3
-from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
-
+import builtins
 import math
 import random
+
+from panda3d.core import TextNode, Vec3
+from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
 
 from game.entities.npc import InteractableNpc, build_humanoid_npc
 from game.systems.inventory import get_item_def
@@ -260,6 +261,9 @@ class Vendor(InteractableNpc):
         if added < qty:
             self.player_inv.add_item("gold", price * (qty - added))
         self._gold_label.setText(f"Gold: {self._gold_count()}")
+        app = getattr(builtins, "base", None)
+        if app is not None and hasattr(app, "hud"):
+            app.hud.refresh_inventory()
         if self._active_tab == "buy":
             self._show_buy_tab()
         else:
@@ -273,4 +277,7 @@ class Vendor(InteractableNpc):
         self.player_inv.remove_item(item_id, sell_qty)
         self.player_inv.add_item("gold", sell_qty * price)
         self._gold_label.setText(f"Gold: {self._gold_count()}")
+        app = getattr(builtins, "base", None)
+        if app is not None and hasattr(app, "hud"):
+            app.hud.refresh_inventory()
         self._show_sell_tab()
