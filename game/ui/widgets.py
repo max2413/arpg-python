@@ -28,47 +28,121 @@ def _rect(parent, left, right, bottom, top, color):
     )
 
 
+ICON_TEMPLATES = {
+    "logs": [
+        (0.14, 0.38, 0.18, 0.78, 1.0),
+        (0.39, 0.63, 0.14, 0.74, 0.9),
+        (0.64, 0.88, 0.20, 0.80, 1.1),
+    ],
+    "ore": [
+        (0.16, 0.48, 0.20, 0.55, 1.0),
+        (0.40, 0.78, 0.28, 0.72, 0.85),
+        (0.28, 0.62, 0.56, 0.86, 1.12),
+    ],
+    "fish": [
+        (0.18, 0.74, 0.34, 0.66, 1.0),
+        (0.68, 0.88, 0.42, 0.58, 0.82),
+        (0.12, 0.28, 0.40, 0.60, 1.1),
+    ],
+    "coins": [
+        (0.18, 0.78, 0.18, 0.34, 1.0),
+        (0.24, 0.84, 0.40, 0.56, 0.9),
+        (0.14, 0.74, 0.62, 0.78, 1.08),
+    ],
+    "sword": [
+        (0.44, 0.56, 0.18, 0.82, 1.2), # Blade (uses shade for metal look)
+        (0.24, 0.76, 0.32, 0.42, 1.0), # Crossguard
+        (0.40, 0.60, 0.06, 0.18, 0.7), # Hilt
+    ],
+    "shield": [
+        (0.22, 0.78, 0.18, 0.82, 1.0),
+        (0.30, 0.70, 0.26, 0.74, 1.15),
+        (0.46, 0.54, 0.24, 0.76, 0.65),
+    ],
+    "hood": [
+        (0.20, 0.80, 0.18, 0.84, 1.0),
+        (0.34, 0.66, 0.34, 0.64, 0.2), # Face opening
+    ],
+    "armor": [
+        (0.24, 0.76, 0.18, 0.82, 1.0),
+        (0.12, 0.30, 0.48, 0.72, 0.92),
+        (0.70, 0.88, 0.48, 0.72, 0.92),
+    ],
+    "legs": [
+        (0.26, 0.46, 0.16, 0.82, 1.0),
+        (0.54, 0.74, 0.16, 0.82, 0.92),
+    ],
+    # New types
+    "herb": [
+        (0.45, 0.55, 0.10, 0.50, 0.6), # Stem
+        (0.30, 0.50, 0.50, 0.70, 1.0), # Leaf/Flower L
+        (0.50, 0.70, 0.55, 0.75, 1.1), # Leaf/Flower R
+        (0.40, 0.60, 0.70, 0.90, 1.2), # Flower Top
+    ],
+    "hide": [
+        (0.15, 0.85, 0.20, 0.80, 1.0),
+        (0.10, 0.20, 0.10, 0.90, 0.9),
+        (0.80, 0.90, 0.10, 0.90, 0.9),
+    ],
+    "meat": [
+        (0.20, 0.80, 0.25, 0.75, 1.0), # Main chunk
+        (0.30, 0.70, 0.40, 0.60, 1.2), # Fat/Bone marbling
+    ],
+    "staff": [
+        (0.45, 0.55, 0.10, 0.80, 1.0),
+        (0.35, 0.65, 0.80, 0.95, 1.3), # Orb top
+    ],
+    "mace": [
+        (0.46, 0.54, 0.10, 0.60, 0.8), # Handle
+        (0.30, 0.70, 0.60, 0.90, 1.0), # Heavy head
+    ],
+    "axe": [
+        (0.46, 0.54, 0.10, 0.85, 0.8), # Handle
+        (0.54, 0.85, 0.60, 0.90, 1.0), # Blade
+    ],
+    "battle_axe": [
+        (0.46, 0.54, 0.10, 0.90, 0.8), # Handle
+        (0.54, 0.85, 0.60, 0.90, 1.0), # Blade R
+        (0.15, 0.46, 0.60, 0.90, 1.0), # Blade L
+    ],
+    "wand": [
+        (0.48, 0.52, 0.20, 0.75, 1.0),
+        (0.45, 0.55, 0.75, 0.85, 1.4), # Tip
+    ],
+    "dagger": [
+        (0.46, 0.54, 0.10, 0.30, 0.7), # Handle
+        (0.44, 0.56, 0.30, 0.85, 1.1), # Blade
+    ],
+    "bow": [
+        (0.20, 0.30, 0.20, 0.80, 1.0), # Limbs
+        (0.70, 0.72, 0.10, 0.90, 0.5), # String
+    ],
+    "crossbow": [
+        (0.45, 0.55, 0.10, 0.85, 1.0), # Stock
+        (0.15, 0.85, 0.70, 0.80, 0.9), # Prod
+    ],
+    "book": [
+        (0.20, 0.80, 0.20, 0.80, 1.0), # Cover
+        (0.25, 0.75, 0.25, 0.75, 1.3), # Pages
+    ]
+}
+
 def create_item_icon(parent, item_def):
     color = item_def["color"]
     spec = item_def.get("icon_spec", {})
     kind = spec.get("kind", item_def.get("category", "generic"))
     parts = [_rect(parent, 0.05, 0.95, 0.05, 0.95, (0.08, 0.08, 0.08, 0.2))]
 
-    if kind == "logs":
-        parts.append(_rect(parent, 0.14, 0.38, 0.18, 0.78, color))
-        parts.append(_rect(parent, 0.39, 0.63, 0.14, 0.74, _shade(color, 0.9)))
-        parts.append(_rect(parent, 0.64, 0.88, 0.2, 0.8, _shade(color, 1.1)))
-    elif kind == "ore":
-        parts.append(_rect(parent, 0.16, 0.48, 0.2, 0.55, color))
-        parts.append(_rect(parent, 0.4, 0.78, 0.28, 0.72, _shade(color, 0.85)))
-        parts.append(_rect(parent, 0.28, 0.62, 0.56, 0.86, _shade(color, 1.12)))
-    elif kind == "fish":
-        parts.append(_rect(parent, 0.18, 0.74, 0.34, 0.66, color))
-        parts.append(_rect(parent, 0.68, 0.88, 0.42, 0.58, _shade(color, 0.82)))
-        parts.append(_rect(parent, 0.12, 0.28, 0.4, 0.6, _shade(color, 1.1)))
-    elif kind == "coins":
-        parts.append(_rect(parent, 0.18, 0.78, 0.18, 0.34, color))
-        parts.append(_rect(parent, 0.24, 0.84, 0.4, 0.56, _shade(color, 0.9)))
-        parts.append(_rect(parent, 0.14, 0.74, 0.62, 0.78, _shade(color, 1.08)))
-    elif kind == "sword":
-        parts.append(_rect(parent, 0.44, 0.56, 0.18, 0.82, (0.78, 0.8, 0.84, 1)))
-        parts.append(_rect(parent, 0.24, 0.76, 0.32, 0.42, color))
-        parts.append(_rect(parent, 0.4, 0.6, 0.06, 0.18, _shade(color, 0.7)))
-    elif kind == "shield":
-        parts.append(_rect(parent, 0.22, 0.78, 0.18, 0.82, color))
-        parts.append(_rect(parent, 0.3, 0.7, 0.26, 0.74, _shade(color, 1.15)))
-        parts.append(_rect(parent, 0.46, 0.54, 0.24, 0.76, _shade(color, 0.65)))
-    elif kind == "hood":
-        parts.append(_rect(parent, 0.2, 0.8, 0.18, 0.84, color))
-        parts.append(_rect(parent, 0.34, 0.66, 0.34, 0.64, (0.12, 0.12, 0.12, 0.85)))
-    elif kind == "armor":
-        parts.append(_rect(parent, 0.24, 0.76, 0.18, 0.82, color))
-        parts.append(_rect(parent, 0.12, 0.3, 0.48, 0.72, _shade(color, 0.92)))
-        parts.append(_rect(parent, 0.7, 0.88, 0.48, 0.72, _shade(color, 0.92)))
-    elif kind == "legs":
-        parts.append(_rect(parent, 0.26, 0.46, 0.16, 0.82, color))
-        parts.append(_rect(parent, 0.54, 0.74, 0.16, 0.82, _shade(color, 0.92)))
+    template = ICON_TEMPLATES.get(kind)
+    if template:
+        for left, right, bottom, top, shade_factor in template:
+            c = _shade(color, shade_factor)
+            # Special case for metal-looking items like swords
+            if kind in ("sword", "2h_sword", "dagger", "axe", "battle_axe") and shade_factor > 1.0:
+                c = _shade((0.78, 0.8, 0.84, 1.0), 1.0)
+            parts.append(_rect(parent, left, right, bottom, top, c))
     else:
+        # Fallback generic box
         parts.append(_rect(parent, 0.2, 0.8, 0.2, 0.8, color))
         parts.append(_rect(parent, 0.3, 0.7, 0.3, 0.7, _shade(color, 1.1)))
 

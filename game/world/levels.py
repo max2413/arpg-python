@@ -6,6 +6,7 @@ import os
 
 from game.services.bank import Bank
 from game.services.vendor import Vendor
+from game.services.crafting import Anvil, Campfire
 from game.world.collision import attach_static_box_collider, remove_static_collider
 from game.world.geometry import make_box_geom
 from game.world.structures import build_structure_shell
@@ -212,6 +213,8 @@ class LevelManager:
 
         bank = Bank(self.render, self.bullet_world, (20, 0, 0), self.inventory)
         vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory)
+        anvil = Anvil(self.render, self.bullet_world, (10, 10, world.terrain.height_at(10, 10)))
+        campfire = Campfire(self.render, self.bullet_world, (-10, 10, world.terrain.height_at(-10, 10)))
         teleporter_pos = (0, 32, world.terrain.height_at(0, 32))
         teleporter = Teleporter(
             self.render,
@@ -230,7 +233,7 @@ class LevelManager:
             world=world,
             resources=resources,
             hostiles=hostiles,
-            interactables=[bank, vendor],
+            interactables=[bank, vendor, anvil, campfire],
             teleporters=[teleporter],
             spawn_points=spawn_points,
             extras=[decor_root],

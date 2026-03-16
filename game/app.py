@@ -20,7 +20,12 @@ from game.entities.player import Player
 from game.systems.combat import in_attack_range
 from game.systems.inventory import Inventory
 from game.systems.skills import Skills
+from game.systems.persistence import save_game, load_game
+from game.systems.quests import QuestManager, create_tutorial_quest
 from game.ui.hud import HUD
+from game.ui.dev_menu import DevMenu
+from game.ui.crafting_ui import CraftingUI
+from game.services.crafting import load_recipes
 from game.world.levels import LevelManager
 
 RESPAWN_DELAY = 3.0
@@ -54,19 +59,34 @@ class Game(ShowBase):
         self._setup_collision_debug()
 
         self.inventory = Inventory(size=28)
-        self.inventory.add_item("gold", 1000)
         self.skills = Skills()
+        self.quest_manager = QuestManager(self)
+        load_game(self.inventory, self.skills, self.quest_manager)
+        
+        self.inventory.add_item("gold", 1000) # Ensure some gold for testing
         self._setup_lighting()
         self.player = Player(self.render, self.bullet_world, self.inventory, terrain=None)
+        self.player.stats.skills = self.skills
+        self.player.stats.recalculate()
         self.cam_controller = CameraController(self.cam, self.player, self.bullet_world)
-        self.hud = HUD(self.inventory, self.skills)
+        self.hud = HUD(self.inventory, self.skills, player=self.player)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
+        
+        if not self.quest_manager.active_quests and not self.quest_manager.completed_ids:
+            self.quest_manager.start_quest(create_tutorial_quest())
+        
+        self.crafting_ui = CraftingUI(self)
+        load_recipes()
+        
         self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
-        self._load_level("overworld", "default")
+        self._load_level("overworld", "default", force_regenerate=True)
+        
+        self.dev_menu = DevMenu(self)
 
         self.accept("i", self.hud.toggle_inventory)
         self.accept("c", self.hud.toggle_equipment)
         self.accept("k", self.hud.toggle_skills)
+        self.accept("f1", self.dev_menu.toggle)
         self.accept("escape", self._on_escape)
         self.accept("e", self._on_e_pressed)
         self.accept("e-up", self._on_e_released)
@@ -163,9 +183,18 @@ class Game(ShowBase):
         )
         DirectButton(
             parent=self._pause_ui,
+            text="Save Game",
+            scale=0.06,
+            pos=(0, 0, -0.06),
+            command=self._save_current_game,
+            frameColor=(0.2, 0.4, 0.6, 1),
+            text_fg=(1, 1, 1, 1),
+        )
+        DirectButton(
+            parent=self._pause_ui,
             text="Regenerate World",
             scale=0.055,
-            pos=(0, 0, -0.04),
+            pos=(0, 0, -0.16),
             command=self._regenerate_overworld,
             frameColor=(0.45, 0.32, 0.1, 1),
             text_fg=(1, 1, 1, 1),
@@ -174,11 +203,20 @@ class Game(ShowBase):
             parent=self._pause_ui,
             text="Exit Game",
             scale=0.06,
-            pos=(0, 0, -0.18),
-            command=self.userExit,
+            pos=(0, 0, -0.28),
+            command=self._exit_game,
             frameColor=(0.6, 0.1, 0.1, 1),
             text_fg=(1, 1, 1, 1),
         )
+
+    def _save_current_game(self):
+        save_game(self.inventory, self.skills)
+        if hasattr(self, "hud"):
+            self.hud.show_prompt("Game Saved")
+
+    def _exit_game(self):
+        self._save_current_game()
+        self.userExit()
 
     def _close_pause(self):
         self._paused = False

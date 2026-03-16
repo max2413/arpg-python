@@ -13,8 +13,8 @@ from panda3d.core import (
     TransparencyAttrib,
 )
 
-from game.entities.hostiles import Follower, Spitter
-from game.world.resources import Tree, Rock, FishingSpot
+from game.entities.creatures import Scout, Ranger, Wolf, Deer
+from game.world.resources import Tree, Rock, FishingSpot, HerbPatch
 
 WORLD_HALF = 500
 SAFE_RADIUS = 50
@@ -44,12 +44,17 @@ FISHING_SPACING = 4.0
 RIVER_WIDTH = 13.5
 
 HOSTILE_COUNT = 4
-SPITTER_COUNT = 3
+RANGER_COUNT = 3
+WOLF_COUNT = 2
+DEER_COUNT = 5
 HOSTILE_MIN_SPACING = 18.0
 HOSTILE_PATROL_RADIUS = 18.0
 HOSTILE_MAX_SLOPE = 0.28
 
 FOREST_DRESSING_PATCHES = 18
+HERBS_PER_CLUSTER_MIN = 4
+HERBS_PER_CLUSTER_MAX = 8
+HERB_MIN_SPACING = 4.0
 
 RIVER_COLOR = (0.10, 0.28, 0.55, 0.96)
 FOREST_FLOOR_COLOR = (0.17, 0.14, 0.07, 0.08)
@@ -127,6 +132,7 @@ def generate_world(render, bullet_world, terrain, seed=42, parent=None, layout=N
         decor_rng = random.Random(seed ^ 0x5555)
         for cx, cy in forest_centers:
             _place_forest_floor(decor_root, terrain, decor_rng, cx, cy, CLUSTER_RADIUS * 0.9)
+            _generate_herbs(random.Random(seed ^ 0x8888), scene_root, bullet_world, terrain, occupied, resources, cx, cy)
 
         for path in river_paths:
             _place_river_decal(decor_root, terrain, path, RIVER_WIDTH, RIVER_COLOR)
@@ -154,7 +160,7 @@ def generate_world(render, bullet_world, terrain, seed=42, parent=None, layout=N
             kind = entry["type"]
             pos = tuple(entry["pos"])
             patrol_center = tuple(entry.get("patrol_center", entry["pos"]))
-            hostile_cls = Spitter if kind == "spitter" else Follower
+            hostile_cls = Ranger if kind in ("spitter", "ranger") else (Wolf if kind == "wolf" else Scout)
             hostiles.append(
                 hostile_cls(
                     scene_root,
@@ -208,7 +214,7 @@ def _build_layout(seed, river_paths, forest_centers, ore_centers, resources, hos
     for hostile in hostiles:
         layout["hostiles"].append(
             {
-                "type": "spitter" if isinstance(hostile, Spitter) else "scout",
+                "type": "ranger" if isinstance(hostile, Ranger) else ("wolf" if isinstance(hostile, Wolf) else "scout"),
                 "pos": [hostile.pos.x, hostile.pos.y, hostile.pos.z],
                 "patrol_center": [hostile.patrol_center.x, hostile.patrol_center.y, hostile.patrol_center.z],
             }
@@ -524,8 +530,23 @@ def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
                 hostiles.append(hostile)
                 break
 
-    _spawn(HOSTILE_COUNT, Follower)
-    _spawn(SPITTER_COUNT, Spitter)
+    _spawn(HOSTILE_COUNT, Scout)
+    _spawn(RANGER_COUNT, Ranger)
+    _spawn(WOLF_COUNT, Wolf)
+    _spawn(DEER_COUNT, Deer)
+
+
+def _generate_herbs(rng, render, bullet_world, terrain, occupied, resources, cx, cy):
+    count = rng.randint(HERBS_PER_CLUSTER_MIN, HERBS_PER_CLUSTER_MAX)
+    for _ in range(count):
+        pos = _try_place(rng, cx, cy, CLUSTER_RADIUS * 0.8, HERB_MIN_SPACING, occupied, terrain, TREE_MAX_SLOPE)
+        if pos is None:
+            continue
+        x, y = pos
+        z = terrain.height_at(x, y)
+        herb_type = rng.choice(["marigold", "belladonna"])
+        occupied.append((x, y))
+        resources.append(HerbPatch(render, bullet_world, (x, y, z), herb_type=herb_type))
 
 
 def _generate_river_paths(rng):

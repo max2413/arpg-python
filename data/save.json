@@ -1,1 +1,72 @@
-{"slots": [{"id": "gold", "quantity": 1983}, null, {"id": "ore", "quantity": 4}, null, null, null, null, null, null, null, null, null, {"id": "fish", "quantity": 4}, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]}
+{
+  "inventory": {
+    "slots": [
+      {
+        "id": "gold",
+        "quantity": 1103
+      },
+      {
+        "id": "raw_meat",
+        "quantity": 3
+      },
+      {
+        "id": "leather",
+        "quantity": 2
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "equipment": {
+      "slots": {
+        "head": null,
+        "chest": null,
+        "legs": null,
+        "weapon": {
+          "id": "bronze_sword",
+          "quantity": 1
+        },
+        "offhand": null
+      }
+    }
+  },
+  "skills": {
+    "skill_xp": {
+      "Melee": 180.0,
+      "Ranged": 0,
+      "Magic": 0,
+      "Defense": 112.0,
+      "Woodcutting": 25,
+      "Mining": 70,
+      "Fishing": 0,
+      "Skinning": 80,
+      "Foraging": 0,
+      "Blacksmithing": 145,
+      "Tailoring": 0,
+      "Cooking": 25,
+      "Alchemy": 0
+    }
+  }
+}

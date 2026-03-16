@@ -16,8 +16,13 @@ from panda3d.core import (
     KeyboardButton,
 )
 from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, ZUp
-from game.entities.npc import CHARACTER_FOOT_Z, build_character_model
-from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile
+from game.entities.models import (
+    CHARACTER_FOOT_Z,
+    HumanoidModel,
+    build_equipment_model,
+)
+from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile, resolve_attack
+from game.systems.stats import StatManager
 
 
 MOVE_SPEED   = 12.0
@@ -47,6 +52,7 @@ UNARMED_RANGED_PROFILE = make_combat_profile(
 # Animation
 WALK_FREQ   = 3.5   # cycles per second at walk speed
 WALK_AMP    = 35.0  # max swing angle in degrees
+ATTACK_ANIM_DURATION = 0.3
 MELEE_ABILITY_RANGE = 3.1
 RANGED_ABILITY_RANGE = 54.0
 MELEE_ABILITY_DAMAGE = 18
@@ -101,23 +107,18 @@ class Player:
         self.terrain = terrain
 
         # Visual
-        (self.figure,
-         self._l_leg, self._r_leg,
-         self._l_arm, self._r_arm) = build_character_model(
+        self.model = HumanoidModel(
             render,
             skin_color=(0.9, 0.85, 0.75, 1.0),
             tunic_color=(0.68, 0.24, 0.12, 1.0),
         )
-        self.figure.reparentTo(render)
+        self.figure = self.model.root
         self._ground_marker = self.figure.attachNewNode(_make_ground_marker())
         self._ground_marker.setPos(0, 0, 0.04)
         self._ground_marker.setTransparency(TransparencyAttrib.MAlpha)
         self._ground_marker.setLightOff()
         self._ground_marker.setDepthWrite(False)
         self._ground_marker.setBin("fixed", 13)
-
-        # Animation state
-        self._walk_t = 0.0
 
         # Physics — capsule covers the stick figure height (~4 units)
         shape = BulletCapsuleShape(PLAYER_CAPSULE_RADIUS, PLAYER_CAPSULE_HEIGHT, ZUp)
@@ -136,14 +137,17 @@ class Player:
         self._mouse_watcher = None
         self._setup_keys()
         self._jump_pending = False
-        self.max_health = MAX_HEALTH
+        
+        # We temporarily pass None for skills since they're attached to Game,
+        # but we can pass them in later or fetch from app.
+        self.stats = StatManager(self, inventory=self.inventory)
+        
+        self.max_health = self.stats.get("max_health")
         self.health = float(self.max_health)
         self.dead = False
         self._time_since_damage = HEALTH_REGEN_DELAY
         self.melee_ability_range = UNARMED_MELEE_PROFILE["range"]
         self.ranged_ability_range = UNARMED_RANGED_PROFILE["range"]
-        self.melee_ability_damage = UNARMED_MELEE_PROFILE["damage"]
-        self.ranged_ability_damage = UNARMED_RANGED_PROFILE["damage"]
         self.projectiles = []
         self._auto_attack_style = None
         self._auto_attack_timer = 0.0
@@ -156,25 +160,27 @@ class Player:
         self._app = app
         self._mouse_watcher = app.mouseWatcherNode
 
-    def _animate(self, dt, moving, sprinting):
-        if moving:
-            freq = WALK_FREQ * (SPRINT_MULT if sprinting else 1.0)
-            self._walk_t += dt * freq * 2 * math.pi
-        else:
-            self._walk_t = 0.0
+    def refresh_equipment_models(self):
+        """Update visible equipment models based on inventory dynamically."""
+        for slot_name in ["weapon", "offhand", "head", "chest", "legs"]:
+            stack = self.inventory.equipment.get_slot(slot_name)
+            if stack:
+                model_np = build_equipment_model(stack["id"])
+                self.model.set_equipment(slot_name, model_np)
+            else:
+                self.model.set_equipment(slot_name, None)
+        
+        self.stats.recalculate()
+        self.max_health = self.stats.get("max_health")
 
-        swing = math.sin(self._walk_t) * WALK_AMP if moving else 0.0
-
-        # Legs swing opposite each other (P = pitch = rotation around X)
-        self._l_leg.setP(swing)
-        self._r_leg.setP(-swing)
-        # Arms counter-swing relative to legs
-        self._l_arm.setP(-swing * 0.6)
-        self._r_arm.setP(swing * 0.6)
-
-    def take_damage(self, amount):
+    def take_damage(self, amount, hud=None, attacker=None):
         if self.dead or amount <= 0:
             return False
+            
+        # Award defense XP
+        if hasattr(self, "stats") and self.stats.skills:
+            self.stats.skills.add_xp("Defense", amount * 0.5)
+            
         self.health = max(0, self.health - amount)
         self._time_since_damage = 0.0
         if self.health == 0:
@@ -206,8 +212,8 @@ class Player:
             pos = self.char_np.getPos()
             self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
             self.figure.setH(self.char_np.getH())
-            self.figure.setColorScale(0.45, 0.2, 0.2, 1)
-            self._animate(dt, False, False)
+            self.model.set_color_scale(0.45, 0.2, 0.2, 1)
+            self.model.animate(dt, False)
             return
 
         self._time_since_damage += dt
@@ -258,13 +264,14 @@ class Player:
             self.char_node.doJump()
             self._jump_pending = False
 
-        self._animate(dt, moving, sprinting)
+        self.refresh_equipment_models()
+        self.model.animate(dt, moving, speed_mult=(SPRINT_MULT if sprinting else 1.0))
 
         # Sync visual to physics.
         pos = self.char_np.getPos()
         self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
         self.figure.setH(self.char_np.getH())
-        self.figure.setColorScale(1, 1, 1, 1)
+        self.model.set_color_scale(1, 1, 1, 1)
 
     def get_pos(self):
         pos = self.char_np.getPos()
@@ -295,11 +302,14 @@ class Player:
         return self.char_np.getH()
 
     def get_combat_profile(self, style):
+        profile = None
         if style == "melee":
-            return dict(UNARMED_MELEE_PROFILE)
-        if style == "ranged":
-            return dict(UNARMED_RANGED_PROFILE)
-        return None
+            profile = dict(UNARMED_MELEE_PROFILE)
+            profile["damage"] = self.stats.get("melee_damage")
+        elif style == "ranged":
+            profile = dict(UNARMED_RANGED_PROFILE)
+            profile["damage"] = self.stats.get("ranged_damage")
+        return profile
 
     def start_auto_attack(self, style):
         if style not in ("melee", "ranged"):
@@ -339,14 +349,20 @@ class Player:
             return
 
         self.face_target(target_point)
-        _log_combat(
-            f"player swing style={self._auto_attack_style} "
-            f"target={target.get_target_name()} damage={profile['damage']}"
-        )
+        self.model.play_attack(self._auto_attack_style)
+
         if profile["projectile"]:
-            self.fire_target_projectile(target, profile["damage"])
+            self.fire_target_projectile(target, profile)
         else:
-            target.take_damage(profile["damage"], hud, attacker=self)
+            outcome = resolve_attack(self, target, self._auto_attack_style, profile["damage"])
+            _log_combat(f"player melee {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
+            if outcome["type"] != "miss" and outcome["type"] != "parry":
+                if target.take_damage(outcome["damage"], hud, attacker=self):
+                    # Target died, maybe bonus XP?
+                    pass
+                if hasattr(self, "stats") and self.stats.skills:
+                    skill_name = "Melee" if self._auto_attack_style == "melee" else "Ranged"
+                    self.stats.skills.add_xp(skill_name, outcome["damage"])
         self._auto_attack_timer = profile["speed"]
 
     def _poll_input(self):
@@ -375,15 +391,12 @@ class Player:
         delta.z = 0
         return delta.length()
 
-    def fire_target_projectile(self, target, damage):
+    def fire_target_projectile(self, target, profile):
         self._clear_expired_target_projectiles()
         origin = self.get_pos() + Vec3(0, 0, 2.2)
-        profile = self.get_combat_profile("ranged")
-        if profile is None:
-            return
-        _log_combat(f"player projectile fired target={target.get_target_name()} damage={damage}")
+        _log_combat(f"player projectile fired target={target.get_target_name()} base_damage={profile['damage']}")
         self.projectiles.append(
-            TargetedProjectile(self.render, origin, target, damage, profile, self._on_projectile_hit)
+            TargetedProjectile(self.render, origin, target, profile["damage"], profile, self._on_projectile_hit)
         )
 
     def update_projectiles(self, dt, hud):
@@ -408,9 +421,11 @@ class Player:
                 active.append(projectile)
         self.projectiles = active
 
-    def _on_projectile_hit(self, target, damage, hud):
-        _log_combat(f"player projectile hit target={target.get_target_name()} damage={damage}")
-        target.take_damage(damage, hud, attacker=self)
+    def _on_projectile_hit(self, target, base_damage, hud):
+        outcome = resolve_attack(self, target, "ranged", base_damage)
+        _log_combat(f"player ranged {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
+        if outcome["type"] != "miss" and outcome["type"] != "parry":
+            target.take_damage(outcome["damage"], hud, attacker=self)
 
 
 def _log_combat(message):

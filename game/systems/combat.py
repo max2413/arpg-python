@@ -1,7 +1,7 @@
-"""Shared combat helpers for profiles, range checks, and targeted projectiles."""
+"""Shared combat helpers for profiles, range checks, targeted projectiles, and attack resolution."""
 
+import random
 from panda3d.core import Vec3
-
 from game.world.geometry import make_sphere_approx
 
 
@@ -47,6 +47,52 @@ def stop_distance_for(profile):
     if preferred is None:
         preferred = profile["range"] if profile["projectile"] else max(0.0, profile["range"] - 0.4)
     return max(profile["min_range"], min(preferred, profile["range"]))
+
+
+def resolve_attack(attacker, defender, attack_style, base_damage):
+    """
+    Resolves combat math: Hit -> Parry -> Block -> Crit -> Armor Mitigation -> Damage.
+    Returns a dict with the outcome: {"type": "hit"|"miss"|"parry"|"block"|"crit", "damage": float}
+    """
+    rng = random.Random()
+    
+    # Base stats access (with safe fallbacks)
+    att_acc = attacker.stats.get("accuracy") if hasattr(attacker, "stats") else 1.0
+    def_eva = defender.stats.get("evasion") if hasattr(defender, "stats") else 0.05
+    
+    # 1. Hit Roll
+    hit_chance = max(0.05, min(0.95, att_acc - def_eva))
+    if rng.random() > hit_chance:
+        return {"type": "miss", "damage": 0.0}
+        
+    # 2. Parry Roll (Melee Only)
+    if attack_style == "melee":
+        def_parry = defender.stats.get("parry_chance") if hasattr(defender, "stats") else 0.0
+        if def_parry > 0 and rng.random() < def_parry:
+            return {"type": "parry", "damage": 0.0}
+            
+    # 3. Block Roll
+    def_block = defender.stats.get("block_chance") if hasattr(defender, "stats") else 0.0
+    if def_block > 0 and rng.random() < def_block:
+        # Block mitigates 70% of damage
+        mitigated_damage = base_damage * 0.3
+        return {"type": "block", "damage": max(1.0, mitigated_damage)}
+        
+    # 4. Crit Roll
+    att_crit = attacker.stats.get("crit_chance") if hasattr(attacker, "stats") else 0.05
+    is_crit = rng.random() < att_crit
+    if is_crit:
+        crit_mult = attacker.stats.get("crit_mult") if hasattr(attacker, "stats") else 1.5
+        base_damage *= crit_mult
+        
+    # 5. Armor Mitigation
+    def_armor = defender.stats.get("armor") if hasattr(defender, "stats") else 0.0
+    final_damage = max(1.0, base_damage - def_armor)
+    
+    return {
+        "type": "crit" if is_crit else "hit",
+        "damage": final_damage
+    }
 
 
 class TargetedProjectile:

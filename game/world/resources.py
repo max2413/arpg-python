@@ -18,7 +18,7 @@ RESPAWN_TIME = 15.0
 
 
 class ResourceNode:
-    def __init__(self, render, bullet_world, pos, item_id, skill, harvest_time, xp_reward):
+    def __init__(self, render, bullet_world, pos, item_id, skill, harvest_time, xp_reward, verb="harvest"):
         self.render = render
         self.bullet_world = bullet_world
         self.pos = Vec3(*pos)
@@ -26,6 +26,7 @@ class ResourceNode:
         self.skill = skill
         self.harvest_time = harvest_time
         self.xp_reward = xp_reward
+        self.verb = verb
 
         self.state = IDLE
         self.harvest_timer = 0.0
@@ -98,22 +99,22 @@ class ResourceNode:
 
         if self.state == IDLE:
             if self.in_range:
-                hud.show_prompt(f"Hold E to harvest {self.item_id}")
+                hud.show_prompt(f"Hold E to {self.verb} {self.item_id}")
                 if self._e_held:
                     self.state = HARVESTING
                     self.harvest_timer = 0.0
             else:
-                hud.clear_prompt_if(f"Hold E to harvest {self.item_id}")
+                hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
 
         elif self.state == HARVESTING:
             if not self.in_range or not self._e_held:
                 self.state = IDLE
                 self.harvest_timer = 0.0
-                hud.clear_prompt_if(f"Hold E to harvest {self.item_id}")
+                hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
                 return
 
             self.harvest_timer += dt
-            hud.show_prompt(f"Harvesting... {self.harvest_timer:.1f}/{self.harvest_time:.1f}s")
+            hud.show_prompt(f"{self.verb.capitalize()}ing... {self.harvest_timer:.1f}/{self.harvest_time:.1f}s")
 
             if self.harvest_timer >= self.harvest_time:
                 if inventory.is_full():
@@ -127,12 +128,19 @@ class ResourceNode:
                     hud.refresh_skills()
                     if levels > 0:
                         hud.show_prompt(f"{self.skill} level up! Level {skills.get_level(self.skill)}")
+                    
+                    # Notify QuestManager
+                    if hasattr(player, "_app") and player._app:
+                        player._app.quest_manager.notify_action("gather", "any") # Tutorial uses "any" for gather
+                        if self.verb == "skin":
+                            player._app.quest_manager.notify_action("skin", self.item_id)
+                            
                     self.state = DEPLETED
                     self.respawn_timer = 0.0
                     self._set_depleted_look()
 
         elif self.state == DEPLETED:
-            hud.clear_prompt_if(f"Hold E to harvest {self.item_id}")
+            hud.clear_prompt_if(f"Hold E to {self.verb} {self.item_id}")
 
         elif self.state == RESPAWNING:
             self.respawn_timer += dt
@@ -241,7 +249,7 @@ class FishingSpot(ResourceNode):
     def __init__(self, render, bullet_world, pos):
         super().__init__(render, bullet_world, pos,
                          item_id="fish", skill="Fishing",
-                         harvest_time=4.0, xp_reward=30)
+                         harvest_time=4.0, xp_reward=30, verb="fish")
         self._anim_timer = 0.0
 
     def _build_visuals(self):
@@ -269,3 +277,90 @@ class FishingSpot(ResourceNode):
 
     def _reset_look(self):
         self._plane.setColor(0.2, 0.5, 0.8, 0.8)
+
+    def _build_blocker(self):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# HerbPatch
+# ---------------------------------------------------------------------------
+
+class HerbPatch(ResourceNode):
+    def __init__(self, render, bullet_world, pos, herb_type="marigold"):
+        # Fetch color from items registry if possible
+        from game.systems.inventory import get_item_def
+        idef = get_item_def(herb_type)
+        self.color = idef["color"] if idef else (1, 1, 1, 1)
+        
+        super().__init__(render, bullet_world, pos,
+                         item_id=herb_type, skill="Foraging",
+                         harvest_time=1.5, xp_reward=15, verb="forage")
+
+    def _build_visuals(self):
+        # Small flower cluster
+        for i in range(3):
+            angle = (i / 3.0) * math.pi * 2
+            petal = self.root.attachNewNode(make_sphere_approx(0.2, self.color))
+            petal.setPos(math.cos(angle) * 0.25, math.sin(angle) * 0.25, 0.1)
+        
+        stem = self.root.attachNewNode(make_cylinder(0.05, 0.4, (0.2, 0.5, 0.1, 1)))
+        self._stem = stem
+
+    def _set_depleted_look(self):
+        self.root.hide()
+
+    def _reset_look(self):
+        self.root.show()
+
+    def _build_blocker(self):
+        pass # No blocker for herbs
+
+
+# ---------------------------------------------------------------------------
+# AnimalCarcass
+# ---------------------------------------------------------------------------
+
+class AnimalCarcass(ResourceNode):
+    def __init__(self, render, bullet_world, pos, animal_type="wolf"):
+        self.animal_type = animal_type
+        # Wolf carcass yields leather and meat (we pick leather as primary item_id)
+        super().__init__(render, bullet_world, pos,
+                         item_id="leather", skill="Skinning",
+                         harvest_time=3.0, xp_reward=40, verb="skin")
+        # Override respawn to never respawn (it's a one-off from a mob)
+        self.state = IDLE
+        self._lifetime = 60.0
+
+    def _build_visuals(self):
+        # Flattened brown box
+        body = self.root.attachNewNode(make_box_geom(1.2, 0.8, 0.4, (0.4, 0.25, 0.15, 1)))
+        self._body = body
+
+    def _set_depleted_look(self):
+        self.remove_from_world()
+
+    def _reset_look(self):
+        pass
+
+    def _build_blocker(self):
+        pass
+
+    def update(self, dt, player_pos, player, inventory, skills, hud):
+        # Carcasses don't respawn, they just wait to be skinned or time out
+        if self.state == DEPLETED:
+            return
+            
+        self._lifetime -= dt
+        if self._lifetime <= 0:
+            self.remove_from_world()
+            self.state = DEPLETED
+            return
+
+        super().update(dt, player_pos, player, inventory, skills, hud)
+        
+        # Override reward to also give meat
+        if self.state == DEPLETED:
+            if not inventory.is_full():
+                inventory.add_item("raw_meat", 1)
+                hud.refresh_inventory()

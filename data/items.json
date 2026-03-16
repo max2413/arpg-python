@@ -26,6 +26,42 @@
     "value": 6,
     "icon_spec": {"kind": "fish"}
   },
+  "leather": {
+    "name": "Leather",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.55, 0.35, 0.2, 1.0],
+    "value": 10,
+    "icon_spec": {"kind": "hide"}
+  },
+  "raw_meat": {
+    "name": "Raw Meat",
+    "category": "raw_material",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.8, 0.2, 0.2, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "meat"}
+  },
+  "marigold": {
+    "name": "Marigold",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [1.0, 0.6, 0.0, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "herb"}
+  },
+  "belladonna": {
+    "name": "Belladonna",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.4, 0.1, 0.6, 1.0],
+    "value": 15,
+    "icon_spec": {"kind": "herb"}
+  },
   "gold": {
     "name": "Gold",
     "category": "currency",
@@ -43,7 +79,8 @@
     "color": [0.72, 0.46, 0.2, 1.0],
     "value": 30,
     "equipment_slot": "weapon",
-    "icon_spec": {"kind": "sword"}
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 22.0, "parry_chance": 0.05}
   },
   "oak_shield": {
     "name": "Oak Shield",
@@ -53,7 +90,8 @@
     "color": [0.45, 0.3, 0.16, 1.0],
     "value": 24,
     "equipment_slot": "offhand",
-    "icon_spec": {"kind": "shield"}
+    "icon_spec": {"kind": "shield"},
+    "stats": {"armor": 8.0, "block_chance": 0.15}
   },
   "cloth_hood": {
     "name": "Cloth Hood",
@@ -63,7 +101,8 @@
     "color": [0.52, 0.22, 0.2, 1.0],
     "value": 18,
     "equipment_slot": "head",
-    "icon_spec": {"kind": "hood"}
+    "icon_spec": {"kind": "hood"},
+    "stats": {"armor": 4.0, "evasion": 0.02}
   },
   "traveler_tunic": {
     "name": "Traveler Tunic",
@@ -73,7 +112,8 @@
     "color": [0.64, 0.24, 0.12, 1.0],
     "value": 28,
     "equipment_slot": "chest",
-    "icon_spec": {"kind": "armor"}
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 12.0, "evasion": 0.03}
   },
   "canvas_pants": {
     "name": "Canvas Pants",
@@ -83,6 +123,119 @@
     "color": [0.4, 0.44, 0.52, 1.0],
     "value": 22,
     "equipment_slot": "legs",
-    "icon_spec": {"kind": "legs"}
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 6.0, "movement_speed": 0.5}
+  },
+  "shortbow": {
+    "name": "Shortbow",
+    "category": "equipment",
+    "subtype": "bow",
+    "stackable": false,
+    "color": [0.55, 0.35, 0.15, 1.0],
+    "value": 25,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "bow"},
+    "stats": {"ranged_damage": 10.0, "crit_chance": 0.05}
+  },
+  "light_crossbow": {
+    "name": "Light Crossbow",
+    "category": "equipment",
+    "subtype": "crossbow",
+    "stackable": false,
+    "color": [0.4, 0.25, 0.15, 1.0],
+    "value": 35,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "crossbow"},
+    "stats": {"ranged_damage": 14.0, "crit_chance": 0.08, "crit_mult": 0.5}
+  },
+  "spellbook": {
+    "name": "Spellbook",
+    "category": "equipment",
+    "subtype": "book",
+    "stackable": false,
+    "color": [0.2, 0.3, 0.6, 1.0],
+    "value": 40,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "book"},
+    "stats": {"magic_damage": 4.0, "max_health": 15.0}
+  },
+  "wooden_staff": {
+    "name": "Wooden Staff",
+    "category": "equipment",
+    "subtype": "staff",
+    "stackable": false,
+    "color": [0.6, 0.4, 0.2, 1.0],
+    "accent_color": [0.2, 0.6, 0.9, 1.0],
+    "value": 20,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "staff"},
+    "stats": {"magic_damage": 12.0, "parry_chance": 0.03}
+  },
+  "iron_mace": {
+    "name": "Iron Mace",
+    "category": "equipment",
+    "subtype": "mace",
+    "stackable": false,
+    "color": [0.5, 0.5, 0.5, 1.0],
+    "value": 28,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "mace"},
+    "stats": {"melee_damage": 16.0, "crit_mult": 0.5}
+  },
+  "hand_axe": {
+    "name": "Hand Axe",
+    "category": "equipment",
+    "subtype": "axe",
+    "stackable": false,
+    "color": [0.6, 0.6, 0.6, 1.0],
+    "value": 22,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "axe"},
+    "stats": {"melee_damage": 14.0, "crit_chance": 0.08}
+  },
+  "battle_axe": {
+    "name": "Battle Axe",
+    "category": "equipment",
+    "subtype": "battle_axe",
+    "stackable": false,
+    "color": [0.4, 0.4, 0.4, 1.0],
+    "value": 45,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "battle_axe"},
+    "stats": {"melee_damage": 22.0, "crit_chance": 0.1, "parry_chance": 0.02}
+  },
+  "greatsword": {
+    "name": "Greatsword",
+    "category": "equipment",
+    "subtype": "2h_sword",
+    "stackable": false,
+    "color": [0.7, 0.7, 0.7, 1.0],
+    "value": 50,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 35.0, "parry_chance": 0.08}
+  },
+  "magic_wand": {
+    "name": "Magic Wand",
+    "category": "equipment",
+    "subtype": "wand",
+    "stackable": false,
+    "color": [0.8, 0.7, 0.5, 1.0],
+    "accent_color": [0.9, 0.2, 0.2, 1.0],
+    "value": 30,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "wand"},
+    "stats": {"magic_damage": 15.0, "crit_chance": 0.05}
+  },
+  "iron_dagger": {
+    "name": "Iron Dagger",
+    "category": "equipment",
+    "subtype": "dagger",
+    "stackable": false,
+    "color": [0.65, 0.65, 0.7, 1.0],
+    "value": 15,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "dagger"},
+    "stats": {"melee_damage": 8.0, "crit_chance": 0.15, "evasion": 0.02}
   }
 }

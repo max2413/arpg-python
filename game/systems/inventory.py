@@ -181,7 +181,10 @@ class Inventory:
         return self.get_free_slots() == 0
 
     def to_dict(self):
-        return {"slots": copy.deepcopy(self.slots)}
+        return {
+            "slots": copy.deepcopy(self.slots),
+            "equipment": self.equipment.to_dict()
+        }
 
     def from_dict(self, data):
         self.slots = [None] * len(self.slots)
@@ -189,11 +192,22 @@ class Inventory:
         for i, stack in enumerate(slots):
             if i < len(self.slots):
                 self.slots[i] = clone_stack(stack)
+        
+        if "equipment" in data:
+            self.equipment.from_dict(data["equipment"])
 
 
 class EquipmentInventory:
     def __init__(self):
         self.slots = {slot_name: None for slot_name in EQUIPMENT_SLOTS}
+
+    def to_dict(self):
+        return {"slots": copy.deepcopy(self.slots)}
+
+    def from_dict(self, data):
+        slots_data = data.get("slots", {})
+        for slot_name in self.slots:
+            self.slots[slot_name] = clone_stack(slots_data.get(slot_name))
 
     def iter_slot_keys(self):
         return list(EQUIPMENT_SLOTS.keys())

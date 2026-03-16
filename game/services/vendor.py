@@ -1,13 +1,20 @@
 """Vendor NPC and draggable shop UI."""
 
-from panda3d.core import TextNode
+from panda3d.core import TextNode, Vec3
 from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
+
+import math
+import random
 
 from game.entities.npc import InteractableNpc, build_humanoid_npc
 from game.systems.inventory import get_item_def
 from game.ui.widgets import DraggableWindow, create_item_icon
 
 VENDOR_PROXIMITY = 5.0
+VENDOR_PATROL_RADIUS = 12.0
+VENDOR_PATROL_SPEED = 2.5
+VENDOR_WAIT_TIME = 4.0
+
 SHOP_STOCK = {
     "wood": 8,
     "ore": 12,
@@ -27,10 +34,16 @@ class Vendor(InteractableNpc):
         self._window = None
         self._active_tab = "buy"
         self._tab_widgets = []
+        
+        self.patrol_center = Vec3(*pos)
+        self._target_pos = Vec3(*pos)
+        self._patrol_wait = 0.0
+        self._state = "idle"
+        
         super().__init__(render, bullet_world, pos, VENDOR_PROXIMITY, "Press E to talk to Vendor")
 
     def _build_visual(self):
-        build_humanoid_npc(
+        self.model = build_humanoid_npc(
             self.root,
             body_color=(0.2, 0.4, 0.8, 1),
             head_color=(0.85, 0.7, 0.5, 1),
@@ -39,6 +52,32 @@ class Vendor(InteractableNpc):
         )
 
     def update(self, dt, player_pos, hud):
+        moving = False
+        if not self.ui_open:
+            if self._state == "idle":
+                self._patrol_wait -= dt
+                if self._patrol_wait <= 0:
+                    self._state = "patrol"
+                    angle = random.uniform(0, 2 * math.pi)
+                    dist = random.uniform(2.0, VENDOR_PATROL_RADIUS)
+                    self._target_pos = self.patrol_center + Vec3(math.cos(angle) * dist, math.sin(angle) * dist, 0)
+            elif self._state == "patrol":
+                diff = self._target_pos - self.pos
+                dist = diff.length()
+                if dist < 0.2:
+                    self._state = "idle"
+                    self._patrol_wait = random.uniform(1.0, VENDOR_WAIT_TIME)
+                else:
+                    moving = True
+                    step = VENDOR_PATROL_SPEED * dt
+                    self.pos += diff / dist * min(step, dist)
+                    self.root.setPos(self.pos)
+                    if self._ghost_np is not None and not self._ghost_np.isEmpty():
+                        self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
+                    # Turn to face target
+                    self.root.setH(math.degrees(math.atan2(-diff.x, diff.y)))
+
+        self._animate(dt, moving=moving)
         self.update_prompt(player_pos, hud, ui_open=self.ui_open)
         if self.ui_open and not self._in_range:
             self.close_ui()

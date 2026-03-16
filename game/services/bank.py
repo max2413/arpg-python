@@ -56,7 +56,7 @@ class Bank(InteractableNpc):
         banker_x, banker_y, banker_z = shell["anchors"]["npc"]
         banker_spot.setPos(banker_x, banker_y, banker_z)
         banker_spot.setScale(1.0 / BANK_SCALE)
-        build_humanoid_npc(
+        self.model = build_humanoid_npc(
             banker_spot,
             body_color=(0.22, 0.46, 0.34, 1),
             head_color=(0.87, 0.73, 0.6, 1),
@@ -65,6 +65,7 @@ class Bank(InteractableNpc):
         )
 
     def update(self, dt, player_pos, hud):
+        self._animate(dt)
         self.update_prompt(player_pos, hud, ui_open=self.ui_open)
         if self.ui_open and not self._in_range:
             self.close_ui()
