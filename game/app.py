@@ -79,7 +79,7 @@ class Game(ShowBase):
         self.crafting_ui = CraftingUI(self)
         
         self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
-        self._load_level("overworld", "default", force_regenerate=True)
+        self._load_level("overworld", "default")
         
         self.dev_menu = DevMenu(self)
 
@@ -340,6 +340,7 @@ class Game(ShowBase):
         self.bullet_world.doPhysics(dt)
 
         self.player.update(dt)
+        self.crafting_ui.update(dt)
         player_pos = self.player.get_pos()
         self.cam_controller.update(
             dt,
@@ -376,6 +377,7 @@ class Game(ShowBase):
                 target.max_health,
                 target.get_level() if hasattr(target, "get_level") else None,
                 self.skills.get_combat_level(),
+                target_role=getattr(target, "role", "normal")
             )
             self.hud.refresh_range_indicators(
                 distance <= self.player.melee_ability_range,

@@ -37,6 +37,16 @@ def build_humanoid_npc(parent, body_color, head_color, accent_color=None, label=
     return model
 
 
+def default_prompt_for_service(service_name):
+    prompts = {
+        "shop": "Press E to browse wares",
+        "bank": "Press E to access bank",
+        "quests": "Press E to talk",
+        "dialogue": "Press E to talk",
+    }
+    return prompts.get(service_name, "Press E to interact")
+
+
 class InteractableNpc:
     def __init__(self, render, bullet_world, pos, proximity, prompt_text):
         self.render = render
@@ -98,3 +108,24 @@ class InteractableNpc:
             self._ghost_np.removeNode()
         if self.root is not None and not self.root.isEmpty():
             self.root.removeNode()
+
+
+class ServiceNpc(InteractableNpc):
+    def __init__(self, render, bullet_world, pos, proximity, services, palette, label):
+        self.services = list(services or [])
+        self.palette = dict(palette or {})
+        self.label = label
+        prompt = default_prompt_for_service(self.services[0] if self.services else None)
+        super().__init__(render, bullet_world, pos, proximity, prompt)
+
+    def has_service(self, service_name):
+        return service_name in self.services
+
+    def _build_visual(self):
+        self.model = build_humanoid_npc(
+            self.root,
+            body_color=tuple(self.palette.get("body", (0.4, 0.4, 0.6, 1.0))),
+            head_color=tuple(self.palette.get("head", (0.86, 0.74, 0.62, 1.0))),
+            accent_color=tuple(self.palette.get("accent", (0.8, 0.8, 0.4, 1.0))),
+            label=self.label,
+        )

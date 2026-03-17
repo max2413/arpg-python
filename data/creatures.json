@@ -1,18 +1,11 @@
 {
   "scout": {
     "name": "Scout",
-    "level": 5,
-    "role": "standard",
+    "role": "normal",
     "scaling": {
-      "health_factor": 0.45,
-      "armor_factor": 0.9,
-      "damage_factor": 0.55,
-      "evasion_factor": 0.85,
-      "crit_factor": 0.8,
-      "block_factor": 0.5,
-      "parry_factor": 0.6
+      "health_factor": 1.0,
+      "damage_factor": 1.0
     },
-    "xp_reward": 16,
     "model_type": "humanoid",
     "ai_type": "hostile",
     "visuals": {
@@ -27,17 +20,13 @@
   },
   "ranger": {
     "name": "Ranger",
-    "level": 6,
-    "role": "ranged",
+    "role": "normal",
     "scaling": {
-      "health_factor": 0.55,
-      "armor_factor": 0.9,
-      "damage_factor": 0.6,
-      "evasion_factor": 1.05,
-      "accuracy_factor": 1.05,
-      "crit_factor": 1.1
+      "health_factor": 0.8,
+      "damage_factor": 0.9,
+      "evasion_factor": 1.1,
+      "accuracy_factor": 1.05
     },
-    "xp_reward": 18,
     "model_type": "humanoid",
     "ai_type": "hostile",
     "visuals": {
@@ -55,16 +44,13 @@
   },
   "wolf": {
     "name": "Wolf",
-    "level": 8,
-    "role": "nimble",
+    "role": "normal",
     "scaling": {
-      "health_factor": 0.42,
-      "armor_factor": 1.0,
-      "damage_factor": 0.6,
-      "evasion_factor": 1.15,
-      "crit_factor": 1.05
+      "health_factor": 0.9,
+      "damage_factor": 1.1,
+      "evasion_factor": 1.2,
+      "crit_factor": 1.1
     },
-    "xp_reward": 24,
     "model_type": "quadruped",
     "ai_type": "hostile",
     "visuals": {
@@ -82,13 +68,11 @@
   },
   "deer": {
     "name": "Deer",
-    "level": 2,
-    "role": "passive",
+    "role": "critter",
     "scaling": {
-      "health_factor": 0.4,
-      "evasion_factor": 1.25
+      "health_factor": 0.8,
+      "evasion_factor": 1.4
     },
-    "xp_reward": 12,
     "model_type": "quadruped",
     "ai_type": "passive",
     "visuals": {

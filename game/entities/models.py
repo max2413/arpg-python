@@ -20,10 +20,23 @@ from game.systems.inventory import get_item_def
 
 HEAD_Z = 3.8
 HEAD_RADIUS = 0.48
-TORSO_SIZE = (0.34, 0.34, 1.32)
-ARM_SIZE = (0.18, 0.18, 1.12)
-LEG_SIZE = (0.2, 0.2, 1.58)
-CHARACTER_FOOT_Z = 0.42
+FACE_EYE_RADIUS = 0.045
+FACE_EYE_FORWARD = HEAD_RADIUS * 0.88
+FACE_EYE_X = 0.14
+FACE_EYE_Z = 0.08
+FACE_MOUTH_SIZE = (0.18, 0.03, 0.03)
+FACE_MOUTH_FORWARD = HEAD_RADIUS * 0.9
+FACE_MOUTH_Z = -0.12
+FACE_COLOR = (0.08, 0.08, 0.08, 1.0)
+CHEST_SIZE = (0.45, 0.34, 0.7)
+WAIST_SIZE = (0.34, 0.3, 0.62)
+UPPER_ARM_SIZE = (0.18, 0.18, 0.56)
+LOWER_ARM_SIZE = (0.16, 0.16, 0.56)
+HAND_RADIUS = 0.12
+UPPER_LEG_SIZE = (0.2, 0.2, 0.79)
+LOWER_LEG_SIZE = (0.18, 0.18, 0.79)
+FOOT_SIZE = (0.22, 0.34, 0.14)
+CHARACTER_FOOT_Z = 0.37
 TUNIC_BASE = 0.62
 TUNIC_BOTTOM_Z = 2.02
 TUNIC_HEAD_GAP = 0.08
@@ -35,10 +48,13 @@ SHADOW_RADIUS_X = 0.62
 SHADOW_RADIUS_Y = 0.42
 SHADOW_ALPHA = 0.18
 ARM_REST_ANGLE = 10.0
+ARM_HANG_ROLL = 8.0
+SHOULDER_GAP = 0.05
 
-WALK_FREQ = 3.5
+WALK_FREQ = 1.8
 WALK_AMP = 35.0
 ATTACK_ANIM_DURATION = 0.3
+WORK_ANIM_DURATION = 0.35
 
 def _make_shadow_disc(radius_x, radius_y, color, segments=20):
     fmt = GeomVertexFormat.getV3n3c4()
@@ -83,9 +99,7 @@ class HumanoidModel:
         self._walk_t = 0.0
         self._attack_anim_timer = 0.0
         self._attack_anim_style = None
-
-        tunic_top_z = HEAD_Z - HEAD_RADIUS - TUNIC_HEAD_GAP
-        tunic_height = tunic_top_z - TUNIC_BOTTOM_Z
+        self._work_anim_timer = 0.0
 
         shadow = self.root.attachNewNode(_make_shadow_disc(SHADOW_RADIUS_X, SHADOW_RADIUS_Y, (0, 0, 0, SHADOW_ALPHA)))
         shadow.setPos(0, 0, 0.03)
@@ -94,22 +108,31 @@ class HumanoidModel:
         shadow.setDepthWrite(False)
         shadow.setBin("fixed", 12)
 
-        self.torso = self.root.attachNewNode(make_box_geom(*TORSO_SIZE, skin_color))
-        self.torso.setPos(0, 0, 2.66)
+        # Torso (Waist and Chest)
+        self.waist = self.root.attachNewNode(make_box_geom(*WAIST_SIZE, skin_color))
+        self.waist.setPos(0, 0, 2.02 + WAIST_SIZE[2] * 0.5)
+        
+        self.chest = self.waist.attachNewNode(make_box_geom(*CHEST_SIZE, skin_color))
+        self.chest.setPos(0, 0, WAIST_SIZE[2] * 0.5 + CHEST_SIZE[2] * 0.5)
 
+        # Tunic (covers both)
+        tunic_height = WAIST_SIZE[2] + CHEST_SIZE[2]
         self.tunic = self.root.attachNewNode(make_box_geom(TUNIC_BASE, TUNIC_BASE, tunic_height, tunic_color))
         self.tunic.setPos(0, 0, TUNIC_BOTTOM_Z + tunic_height * 0.5)
 
+        # Head
         self.head = self.root.attachNewNode(make_sphere_approx(HEAD_RADIUS, skin_color))
         self.head.setPos(0, 0, HEAD_Z)
+        self._build_face()
         
         self.head_anchor = self.head.attachNewNode("head_anchor")
         self.head_anchor.setPos(0, 0, 0)
-        self.back_anchor = self.root.attachNewNode("back_anchor")
-        self.back_anchor.setPos(0, -0.22, 2.65)
+        self.back_anchor = self.chest.attachNewNode("back_anchor")
+        self.back_anchor.setPos(0, -0.22, 0.1) # Adjusted relative to chest
         self.back_anchor.setH(90)
         self.back_anchor.setP(-20)
 
+        # UI/Direction Arrow
         self.arrow_root = self.root.attachNewNode("direction_arrow")
         self.arrow_root.setPos(0, 0, HEAD_Z + 0.9)
         arrow_shaft = self.arrow_root.attachNewNode(make_box_geom(*ARROW_SHAFT_SIZE, (*arrow_color, 1.0)))
@@ -121,38 +144,86 @@ class HumanoidModel:
         arrow_right.setPos(0.1, 0.74, 0)
         arrow_right.setH(40)
 
-        self.l_arm = self.root.attachNewNode("l_arm_pivot")
-        self.l_arm.setPos(0, 0, 3.2)
-        self.l_arm_geom = self.l_arm.attachNewNode(make_box_geom(*ARM_SIZE, skin_color))
-        self.l_arm_geom.setPos(-0.32, 0, -0.58)
-        self.l_arm_geom.setR(ARM_REST_ANGLE)
-        self.l_hand_anchor = self.l_arm_geom.attachNewNode("l_hand_anchor")
-        self.l_hand_anchor.setPos(0, 0, -ARM_SIZE[2] * 0.5)
+        # Arms (Upper, Lower, Hands)
+        self.l_arm = self.chest.attachNewNode("l_arm_pivot")
+        self.l_arm.setPos(-CHEST_SIZE[0] * 0.5 - SHOULDER_GAP, 0, CHEST_SIZE[2] * 0.3)
+        self.l_arm.setR(ARM_HANG_ROLL)
+        self.l_upper_arm = self.l_arm.attachNewNode(make_box_geom(*UPPER_ARM_SIZE, skin_color))
+        self.l_upper_arm.setPos(-UPPER_ARM_SIZE[0] * 0.5, 0, -UPPER_ARM_SIZE[2] * 0.5)
+        
+        self.l_elbow = self.l_upper_arm.attachNewNode("l_elbow_pivot")
+        self.l_elbow.setPos(0, 0, -UPPER_ARM_SIZE[2] * 0.5)
+        self.l_lower_arm = self.l_elbow.attachNewNode(make_box_geom(*LOWER_ARM_SIZE, skin_color))
+        self.l_lower_arm.setPos(0, 0, -LOWER_ARM_SIZE[2] * 0.5)
+        
+        self.l_hand = self.l_lower_arm.attachNewNode(make_sphere_approx(HAND_RADIUS, skin_color))
+        self.l_hand.setPos(0, 0, -LOWER_ARM_SIZE[2] * 0.5)
+        self.l_hand_anchor = self.l_hand.attachNewNode("l_hand_anchor")
 
-        self.r_arm = self.root.attachNewNode("r_arm_pivot")
-        self.r_arm.setPos(0, 0, 3.2)
-        self.r_arm_geom = self.r_arm.attachNewNode(make_box_geom(*ARM_SIZE, skin_color))
-        self.r_arm_geom.setPos(0.32, 0, -0.58)
-        self.r_arm_geom.setR(-ARM_REST_ANGLE)
-        self.r_hand_anchor = self.r_arm_geom.attachNewNode("r_hand_anchor")
-        self.r_hand_anchor.setPos(0, 0, -ARM_SIZE[2] * 0.5)
+        self.r_arm = self.chest.attachNewNode("r_arm_pivot")
+        self.r_arm.setPos(CHEST_SIZE[0] * 0.5 + SHOULDER_GAP, 0, CHEST_SIZE[2] * 0.3)
+        self.r_arm.setR(-ARM_HANG_ROLL)
+        self.r_upper_arm = self.r_arm.attachNewNode(make_box_geom(*UPPER_ARM_SIZE, skin_color))
+        self.r_upper_arm.setPos(UPPER_ARM_SIZE[0] * 0.5, 0, -UPPER_ARM_SIZE[2] * 0.5)
+        
+        self.r_elbow = self.r_upper_arm.attachNewNode("r_elbow_pivot")
+        self.r_elbow.setPos(0, 0, -UPPER_ARM_SIZE[2] * 0.5)
+        self.r_lower_arm = self.r_elbow.attachNewNode(make_box_geom(*LOWER_ARM_SIZE, skin_color))
+        self.r_lower_arm.setPos(0, 0, -LOWER_ARM_SIZE[2] * 0.5)
+        
+        self.r_hand = self.r_lower_arm.attachNewNode(make_sphere_approx(HAND_RADIUS, skin_color))
+        self.r_hand.setPos(0, 0, -LOWER_ARM_SIZE[2] * 0.5)
+        self.r_hand_anchor = self.r_hand.attachNewNode("r_hand_anchor")
 
+        # Legs (Upper, Lower, Feet)
+        leg_spawn_z = 2.02
         self.l_leg = self.root.attachNewNode("l_leg_pivot")
-        self.l_leg.setPos(0, 0, 2.0)
-        self.l_leg_geom = self.l_leg.attachNewNode(make_box_geom(*LEG_SIZE, skin_color))
-        self.l_leg_geom.setPos(-0.14, 0, -0.79)
+        self.l_leg.setPos(-0.14, 0, leg_spawn_z)
+        self.l_upper_leg = self.l_leg.attachNewNode(make_box_geom(*UPPER_LEG_SIZE, skin_color))
+        self.l_upper_leg.setPos(0, 0, -UPPER_LEG_SIZE[2] * 0.5)
+        
+        self.l_knee = self.l_upper_leg.attachNewNode("l_knee_pivot")
+        self.l_knee.setPos(0, 0, -UPPER_LEG_SIZE[2] * 0.5)
+        self.l_lower_leg = self.l_knee.attachNewNode(make_box_geom(*LOWER_LEG_SIZE, skin_color))
+        self.l_lower_leg.setPos(0, 0, -LOWER_LEG_SIZE[2] * 0.5)
+        
+        self.l_foot = self.l_lower_leg.attachNewNode(make_box_geom(*FOOT_SIZE, skin_color))
+        self.l_foot.setPos(0, FOOT_SIZE[1] * 0.3, -LOWER_LEG_SIZE[2] * 0.5)
 
         self.r_leg = self.root.attachNewNode("r_leg_pivot")
-        self.r_leg.setPos(0, 0, 2.0)
-        self.r_leg_geom = self.r_leg.attachNewNode(make_box_geom(*LEG_SIZE, skin_color))
-        self.r_leg_geom.setPos(0.14, 0, -0.79)
+        self.r_leg.setPos(0.14, 0, leg_spawn_z)
+        self.r_upper_leg = self.r_leg.attachNewNode(make_box_geom(*UPPER_LEG_SIZE, skin_color))
+        self.r_upper_leg.setPos(0, 0, -UPPER_LEG_SIZE[2] * 0.5)
+        
+        self.r_knee = self.r_upper_leg.attachNewNode("r_knee_pivot")
+        self.r_knee.setPos(0, 0, -UPPER_LEG_SIZE[2] * 0.5)
+        self.r_lower_leg = self.r_knee.attachNewNode(make_box_geom(*LOWER_LEG_SIZE, skin_color))
+        self.r_lower_leg.setPos(0, 0, -LOWER_LEG_SIZE[2] * 0.5)
+        
+        self.r_foot = self.r_lower_leg.attachNewNode(make_box_geom(*FOOT_SIZE, skin_color))
+        self.r_foot.setPos(0, FOOT_SIZE[1] * 0.3, -LOWER_LEG_SIZE[2] * 0.5)
+
+    def _build_face(self):
+        left_eye = self.head.attachNewNode(make_sphere_approx(FACE_EYE_RADIUS, FACE_COLOR))
+        left_eye.setPos(-FACE_EYE_X, FACE_EYE_FORWARD, FACE_EYE_Z)
+
+        right_eye = self.head.attachNewNode(make_sphere_approx(FACE_EYE_RADIUS, FACE_COLOR))
+        right_eye.setPos(FACE_EYE_X, FACE_EYE_FORWARD, FACE_EYE_Z)
+
+        mouth = self.head.attachNewNode(make_box_geom(*FACE_MOUTH_SIZE, FACE_COLOR))
+        mouth.setPos(0, FACE_MOUTH_FORWARD, FACE_MOUTH_Z)
 
     def play_attack(self, style):
         self._attack_anim_timer = ATTACK_ANIM_DURATION
         self._attack_anim_style = style
 
+    def play_work(self):
+        if self._work_anim_timer <= 0.0:
+            self._work_anim_timer = WORK_ANIM_DURATION
+
     def animate(self, dt, moving, speed_mult=1.0):
         self._attack_anim_timer = max(0.0, self._attack_anim_timer - dt)
+        self._work_anim_timer = max(0.0, self._work_anim_timer - dt)
         self._idle_t += dt
 
         if moving:
@@ -161,30 +232,64 @@ class HumanoidModel:
             self._walk_t = 0.0
 
         swing = math.sin(self._walk_t) * WALK_AMP if moving else 0.0
+        # Knee bend: bend BACK (negative pitch) when leg is swinging through or back
+        knee_bend = abs(math.sin(self._walk_t)) * 40.0 if moving else 0.0
+        # Elbow bend: bend FORWARD (positive pitch)
+        elbow_swing = (math.sin(self._walk_t + math.pi*0.5) + 1.0) * 20.0 if moving else 10.0
 
-        # Idle breathing/sway (arms only)
-        idle_arm = math.sin(self._idle_t * 1.6) * 7.5
+        # Idle breathing/sway
+        idle_sway = math.sin(self._idle_t * 1.6)
+        idle_arm = idle_sway * 7.5
+        idle_chest = idle_sway * 2.0
 
         l_arm_pitch = -swing * 0.6 + idle_arm
         r_arm_pitch = swing * 0.6 + idle_arm
         
+        l_elbow_pitch = elbow_swing
+        r_elbow_pitch = elbow_swing
+        
         l_leg_pitch = swing
         r_leg_pitch = -swing
         
+        # Natural stride: bend knee when leg is back (pitch < 0)
+        l_knee_pitch = -knee_bend if l_leg_pitch < 0 else -knee_bend * 0.15
+        r_knee_pitch = -knee_bend if r_leg_pitch < 0 else -knee_bend * 0.15
+        
         # Attack animations blend over these pitches
+        chest_pitch = idle_chest
         if self._attack_anim_timer > 0.0:
             progress = 1.0 - (self._attack_anim_timer / ATTACK_ANIM_DURATION)
             strike_curve = math.sin(progress * math.pi)
             if self._attack_anim_style == "melee":
                 r_arm_pitch += 80.0 * strike_curve
+                r_elbow_pitch += 50.0 * strike_curve
             elif self._attack_anim_style == "ranged":
                 l_arm_pitch += 70.0 * strike_curve
                 r_arm_pitch += 70.0 * strike_curve
+                l_elbow_pitch += 40.0 * strike_curve
+                r_elbow_pitch += 40.0 * strike_curve
+        elif self._work_anim_timer > 0.0:
+            progress = 1.0 - (self._work_anim_timer / WORK_ANIM_DURATION)
+            work_curve = math.sin(progress * math.pi)
+            chest_pitch = idle_chest - (6.0 * work_curve)
+            l_arm_pitch = 40.0 + (22.0 * work_curve)
+            r_arm_pitch = 58.0 + (42.0 * work_curve)
+            l_elbow_pitch = 42.0 + (24.0 * work_curve)
+            r_elbow_pitch = 68.0 + (38.0 * work_curve)
+            l_leg_pitch = -8.0 * work_curve
+            r_leg_pitch = 6.0 * work_curve
+            l_knee_pitch = -10.0 * work_curve
+            r_knee_pitch = -6.0 * work_curve
 
+        self.chest.setP(chest_pitch)
         self.l_leg.setP(l_leg_pitch)
         self.r_leg.setP(r_leg_pitch)
+        self.l_knee.setP(l_knee_pitch)
+        self.r_knee.setP(r_knee_pitch)
         self.l_arm.setP(l_arm_pitch)
         self.r_arm.setP(r_arm_pitch)
+        self.l_elbow.setP(l_elbow_pitch)
+        self.r_elbow.setP(r_elbow_pitch)
 
     def set_color_scale(self, r, g, b, a):
         self.root.setColorScale(r, g, b, a)
@@ -222,17 +327,28 @@ class HumanoidModel:
             m.reparentTo(self.head_anchor)
         elif slot == "chest":
             if index == 0:
-                m.reparentTo(self.torso)
+                m.reparentTo(self.chest)
             elif index == 1:
-                m.reparentTo(self.l_arm_geom)
+                m.reparentTo(self.waist)
             elif index == 2:
-                m.reparentTo(self.r_arm_geom)
+                m.reparentTo(self.l_upper_arm)
+            elif index == 3:
+                m.reparentTo(self.r_upper_arm)
         elif slot == "legs":
-            # Expects list [left_leg_armor, right_leg_armor]
             if index == 0:
-                m.reparentTo(self.l_leg_geom)
+                m.reparentTo(self.l_upper_leg)
             else:
-                m.reparentTo(self.r_leg_geom)
+                m.reparentTo(self.r_upper_leg)
+        elif slot == "hands":
+            if index == 0:
+                m.reparentTo(self.l_lower_arm)
+            else:
+                m.reparentTo(self.r_lower_arm)
+        elif slot == "feet":
+            if index == 0:
+                m.reparentTo(self.l_foot)
+            else:
+                m.reparentTo(self.r_foot)
 
 
 class CreatureModel:
@@ -357,32 +473,34 @@ def build_hood(item_def):
     return root
 
 def build_armor(item_def):
-    """Procedural armor/tunic overlay with sleeves."""
+    """Procedural armor/tunic overlay with sleeves. Returns [chest, waist, l_sleeve, r_sleeve]."""
     color = item_def.get("color", (0.64, 0.24, 0.12, 1.0))
     
-    torso = NodePath("armor_torso")
-    torso.attachNewNode(make_box_geom(0.7, 0.7, 1.4, color))
+    chest = NodePath("armor_chest")
+    chest.attachNewNode(make_box_geom(CHEST_SIZE[0] + 0.05, CHEST_SIZE[1] + 0.05, CHEST_SIZE[2] + 0.05, color))
+    
+    waist = NodePath("armor_waist")
+    waist.attachNewNode(make_box_geom(WAIST_SIZE[0] + 0.05, WAIST_SIZE[1] + 0.05, WAIST_SIZE[2] + 0.05, color))
     
     l_sleeve = NodePath("l_sleeve")
-    l_sleeve.attachNewNode(make_box_geom(0.24, 0.24, 0.6, color))
-    l_sleeve.setZ(0.25)
+    l_sleeve.attachNewNode(make_box_geom(UPPER_ARM_SIZE[0] + 0.04, UPPER_ARM_SIZE[1] + 0.04, UPPER_ARM_SIZE[2] + 0.04, color))
     
     r_sleeve = NodePath("r_sleeve")
-    r_sleeve.attachNewNode(make_box_geom(0.24, 0.24, 0.6, color))
-    r_sleeve.setZ(0.25)
+    r_sleeve.attachNewNode(make_box_geom(UPPER_ARM_SIZE[0] + 0.04, UPPER_ARM_SIZE[1] + 0.04, UPPER_ARM_SIZE[2] + 0.04, color))
     
-    return [torso, l_sleeve, r_sleeve]
-
+    return [chest, waist, l_sleeve, r_sleeve]
+CHARACTER_FOOT_Z = 0.37
+...
 def build_legs(item_def):
     """Procedural pants/legs overlay (two nodes)."""
     color = item_def.get("color", (0.4, 0.44, 0.52, 1.0))
-    
+
     l_pant = NodePath("l_leg_armor")
-    l_pant.attachNewNode(make_box_geom(0.24, 0.24, 1.62, color))
-    
+    l_pant.attachNewNode(make_box_geom(UPPER_LEG_SIZE[0] + 0.04, UPPER_LEG_SIZE[1] + 0.04, UPPER_LEG_SIZE[2] + LOWER_LEG_SIZE[2] + 0.04, color))
+
     r_pant = NodePath("r_leg_armor")
-    r_pant.attachNewNode(make_box_geom(0.24, 0.24, 1.62, color))
-    
+    r_pant.attachNewNode(make_box_geom(UPPER_LEG_SIZE[0] + 0.04, UPPER_LEG_SIZE[1] + 0.04, UPPER_LEG_SIZE[2] + LOWER_LEG_SIZE[2] + 0.04, color))
+
     return [l_pant, r_pant]
 
 def build_bow(item_def):
@@ -520,12 +638,38 @@ def build_dagger(item_def):
     handle.setZ(0.0)
     return root
 
+def build_gloves(item_def):
+    """Procedural gloves/gauntlets (two nodes)."""
+    color = item_def.get("color", (0.4, 0.4, 0.4, 1.0))
+    
+    l_glove = NodePath("l_glove")
+    l_glove.attachNewNode(make_box_geom(0.2, 0.2, 0.4, color))
+    
+    r_glove = NodePath("r_glove")
+    r_glove.attachNewNode(make_box_geom(0.2, 0.2, 0.4, color))
+    
+    return [l_glove, r_glove]
+
+def build_boots(item_def):
+    """Procedural boots/sabatons (two nodes)."""
+    color = item_def.get("color", (0.3, 0.3, 0.3, 1.0))
+    
+    l_boot = NodePath("l_boot")
+    l_boot.attachNewNode(make_box_geom(0.24, 0.36, 0.2, color))
+    
+    r_boot = NodePath("r_boot")
+    r_boot.attachNewNode(make_box_geom(0.24, 0.36, 0.2, color))
+    
+    return [l_boot, r_boot]
+
 EQUIPMENT_BUILDERS = {
     "sword": build_sword,
     "shield": build_shield,
     "hood": build_hood,
     "armor": build_armor,
     "legs": build_legs,
+    "hands": build_gloves,
+    "feet": build_boots,
     "bow": build_bow,
     "crossbow": build_crossbow,
     "book": build_book,

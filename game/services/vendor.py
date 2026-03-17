@@ -1,60 +1,79 @@
 """Vendor NPC and draggable shop UI."""
 
 import builtins
+import json
 import math
+import os
 import random
 
 from panda3d.core import TextNode, Vec3
-from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
+from direct.gui.DirectGui import DirectFrame, OnscreenText
 
-from game.entities.npc import InteractableNpc, build_humanoid_npc
+from game.entities.npc import ServiceNpc
 from game.systems.inventory import get_item_def
+from game.systems.paths import data_path
 from game.ui.widgets import DraggableWindow, create_item_icon, create_text_button
 
 VENDOR_PROXIMITY = 5.0
 VENDOR_PATROL_RADIUS = 12.0
 VENDOR_PATROL_SPEED = 2.5
 VENDOR_WAIT_TIME = 4.0
+VENDOR_DATA_PATH = data_path("vendors.json")
 
-SHOP_STOCK = {
-    "wood": 8,
-    "ore": 12,
-    "fish": 10,
-    "cloth_hood": 20,
-    "traveler_tunic": 28,
-    "canvas_pants": 22,
-    "bronze_sword": 35,
-    "oak_shield": 30,
-}
+VENDOR_CATALOGS = {}
 
 
-class Vendor(InteractableNpc):
-    def __init__(self, render, bullet_world, pos, player_inventory):
+def load_vendor_catalogs():
+    global VENDOR_CATALOGS
+    if not os.path.exists(VENDOR_DATA_PATH):
+        VENDOR_CATALOGS = {}
+        return
+    try:
+        with open(VENDOR_DATA_PATH, "r", encoding="utf-8") as handle:
+            VENDOR_CATALOGS = json.load(handle)
+    except Exception as exc:
+        print(f"[vendor] failed to load catalogs: {exc}")
+        VENDOR_CATALOGS = {}
+
+
+def get_vendor_catalog(vendor_id):
+    return VENDOR_CATALOGS.get(vendor_id, {})
+
+
+class Vendor(ServiceNpc):
+    def __init__(self, render, bullet_world, pos, player_inventory, vendor_id="materials_supplier", static_idle=False):
         self.player_inv = player_inventory
+        self.vendor_id = vendor_id
+        self.vendor_data = get_vendor_catalog(vendor_id)
+        self.static_idle = static_idle
         self.ui_open = False
         self._window = None
         self._active_tab = "buy"
         self._tab_widgets = []
-        
+
         self.patrol_center = Vec3(*pos)
         self._target_pos = Vec3(*pos)
         self._patrol_wait = 0.0
         self._state = "idle"
-        
-        super().__init__(render, bullet_world, pos, VENDOR_PROXIMITY, "Press E to talk to Vendor")
 
-    def _build_visual(self):
-        self.model = build_humanoid_npc(
-            self.root,
-            body_color=(0.2, 0.4, 0.8, 1),
-            head_color=(0.85, 0.7, 0.5, 1),
-            accent_color=(0.95, 0.75, 0.2, 1),
-            label="Vendor",
+        super().__init__(
+            render,
+            bullet_world,
+            pos,
+            VENDOR_PROXIMITY,
+            services=["shop"],
+            palette=self.vendor_data.get("palette", {}),
+            label=self.vendor_data.get("label", "Vendor"),
         )
+        self.prompt_text = f"Press E to browse {self.vendor_data.get('name', 'wares')}"
+
+    @property
+    def stock(self):
+        return self.vendor_data.get("stock", {})
 
     def update(self, dt, player_pos, hud):
         moving = False
-        if not self.ui_open:
+        if not self.ui_open and not self.static_idle:
             if self._state == "idle":
                 self._patrol_wait -= dt
                 if self._patrol_wait <= 0:
@@ -75,7 +94,6 @@ class Vendor(InteractableNpc):
                     self.root.setPos(self.pos)
                     if self._ghost_np is not None and not self._ghost_np.isEmpty():
                         self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
-                    # Turn to face target
                     self.root.setH(math.degrees(math.atan2(-diff.x, diff.y)))
 
         self._animate(dt, moving=moving)
@@ -98,7 +116,8 @@ class Vendor(InteractableNpc):
         return self.player_inv.count_item("gold")
 
     def _build_ui(self):
-        self._window = DraggableWindow("Vendor Shop", (-0.7, 0.7, -0.65, 0.65), (0, 0, 0), self.close_ui)
+        title = self.vendor_data.get("name", "Vendor Shop")
+        self._window = DraggableWindow(title, (-0.7, 0.7, -0.65, 0.65), (0, 0, 0), self.close_ui)
         body = self._window.body
         self._gold_label = OnscreenText(
             text=f"Gold: {self._gold_count()}",
@@ -159,10 +178,9 @@ class Vendor(InteractableNpc):
     def _show_buy_tab(self):
         self._active_tab = "buy"
         self._clear_tab()
-        for idx, (item_id, buy_price) in enumerate(SHOP_STOCK.items()):
+        visible_stock = [(item_id, price) for item_id, price in self.stock.items() if get_item_def(item_id)]
+        for idx, (item_id, buy_price) in enumerate(visible_stock):
             item_def = get_item_def(item_id)
-            if item_def is None:
-                continue
             y = 0.28 - idx * 0.1
             if y < -0.56:
                 break
@@ -289,3 +307,6 @@ class Vendor(InteractableNpc):
         if app is not None and hasattr(app, "hud"):
             app.hud.refresh_inventory()
         self._show_sell_tab()
+
+
+load_vendor_catalogs()

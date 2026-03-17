@@ -5,7 +5,14 @@ dev_menu.py - Tabbed developer tools for spawning, tuning, and cleanup.
 import math
 
 from direct.gui import DirectGuiGlobals as DGG
-from direct.gui.DirectGui import DirectButton, DirectFrame, DirectScrolledFrame, OnscreenText
+from direct.gui.DirectGui import (
+    DirectButton,
+    DirectEntry,
+    DirectFrame,
+    DirectOptionMenu,
+    DirectScrolledFrame,
+    OnscreenText,
+)
 from panda3d.core import TextNode, Vec3
 
 from game.entities.creatures import CREATURE_DEFS, Creature
@@ -27,6 +34,15 @@ class DevMenu(DraggableWindow):
         self._tab_buttons = {}
         self._active_tab = None
         self._player_summary_label = None
+
+        # Custom spawn state
+        self._spawn_creature_id = "scout"
+        self._spawn_role_override = None
+        self._spawn_level = 1
+        self._spawn_creature_btns = {}
+        self._spawn_role_btns = {}
+        self._level_entry = None
+
         super().__init__(
             "Developer Menu (F1)",
             frame_size=(-0.8, 0.8, -0.84, 0.84),
@@ -120,25 +136,78 @@ class DevMenu(DraggableWindow):
         self._button(parent, "Remove Selected", 0.56, self.CONTENT_TOP - 0.20, self._remove_selected_entity, width=2.7)
 
         OnscreenText(
-            text="Entity Spawner",
+            text="Custom Spawner",
             parent=parent,
             pos=(-0.7, self.CONTENT_TOP - 0.36),
             scale=0.045,
             fg=(1, 0.8, 0.2, 1),
             align=TextNode.ALeft,
         )
-        spawnables = [("Vendor", Vendor, None)]
-        for creature_id, data in sorted(CREATURE_DEFS.items()):
-            spawnables.append((data.get("name", creature_id.title()), creature_id, data.get("level", 1)))
 
-        cols = 3
-        for i, (label, target, level) in enumerate(spawnables):
-            col = i % cols
-            row = i // cols
-            x = -0.56 + col * 0.56
-            z = self.CONTENT_TOP - 0.50 - row * 0.16
-            button_label = label if level is None else f"{label} Lv {level}"
-            self._button(parent, button_label, x, z, lambda t=target: self._spawn_entity(t), width=3.2)
+        # Creature selection
+        OnscreenText(
+            text="Creature:",
+            parent=parent,
+            pos=(-0.7, self.CONTENT_TOP - 0.46),
+            scale=0.035,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+
+        creatures = sorted(CREATURE_DEFS.keys())
+        for i, cid in enumerate(creatures):
+            col = i % 4
+            row = i // 4
+            x = -0.45 + col * 0.32
+            z = self.CONTENT_TOP - 0.46 - row * 0.10
+            btn = self._button(parent, cid.title(), x, z, lambda c=cid: self._select_creature(c), width=2.5)
+            self._spawn_creature_btns[cid] = btn
+
+        # Role selection
+        role_z = self.CONTENT_TOP - 0.72
+        OnscreenText(
+            text="Role Override:",
+            parent=parent,
+            pos=(-0.7, role_z),
+            scale=0.035,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+
+        roles = [(None, "None"), ("critter", "Critter"), ("normal", "Normal"), ("elite", "Elite"), ("boss", "Boss")]
+        for i, (role_val, label) in enumerate(roles):
+            x = -0.45 + i * 0.28
+            btn = self._button(parent, label, x, role_z, lambda r=role_val: self._select_role(r), width=2.2)
+            self._spawn_role_btns[role_val] = btn
+
+        # Level selection
+        level_z = role_z - 0.14
+        OnscreenText(
+            text="Level:",
+            parent=parent,
+            pos=(-0.7, level_z),
+            scale=0.035,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+
+        self._level_entry = DirectEntry(
+            parent=parent,
+            scale=0.04,
+            pos=(-0.5, 0, level_z - 0.01),
+            initialText="1",
+            numLines=1,
+            focus=0,
+            frameColor=(0.15, 0.15, 0.15, 1),
+            text_fg=(1, 1, 1, 1),
+            width=4,
+        )
+
+        # Spawn button
+        self._button(parent, "SPAWN ENTITY", 0.4, level_z, self._spawn_custom, width=4.0)
+
+        # Update UI colors
+        self._update_spawn_ui()
 
     def _build_items_tab(self, parent):
         scroll = DirectScrolledFrame(
@@ -189,7 +258,8 @@ class DevMenu(DraggableWindow):
             ("Heal Full", self._heal_player, -0.5, -0.16, 2.5),
             ("+1000 Gold", self._add_gold, -0.08, -0.16, 2.5),
             ("Toggle Combat Debugger", self.app.hud.toggle_combat_debug, 0.44, -0.16, 4.0),
-            ("Save Game", self._save_game, -0.5, -0.34, 2.5),
+            ("Spawn Vendor", lambda: self._spawn_entity(Vendor), -0.5, -0.34, 2.5),
+            ("Save Game", self._save_game, -0.08, -0.34, 2.5),
         ]
         for text, command, x, z, width in utility_specs:
             self._button(parent, text, x, z, command, width=width)
@@ -254,7 +324,7 @@ class DevMenu(DraggableWindow):
         else:
             self.app.hud.show_prompt("Inventory Full!")
 
-    def _spawn_entity(self, target):
+    def _spawn_entity(self, target, level=None, role=None):
         active_level = self.app._active_level
         if active_level is None:
             self.app.hud.show_prompt("No active level!")
@@ -275,6 +345,8 @@ class DevMenu(DraggableWindow):
                 self.app.render,
                 spawn_pos,
                 creature_id=target,
+                level=level,
+                role=role,
                 patrol_center=spawn_pos,
                 terrain=self.app.player.terrain,
                 bullet_world=self.app.bullet_world,
@@ -286,6 +358,32 @@ class DevMenu(DraggableWindow):
 
         self.app.hud.show_prompt(f"Spawned {name}")
         return entity
+
+    def _update_spawn_ui(self):
+        # Update creature buttons
+        for cid, btn in self._spawn_creature_btns.items():
+            btn["frameColor"] = (0.38, 0.34, 0.18, 1) if cid == self._spawn_creature_id else (0.24, 0.24, 0.26, 1)
+        
+        # Update role buttons
+        for role, btn in self._spawn_role_btns.items():
+            btn["frameColor"] = (0.38, 0.34, 0.18, 1) if role == self._spawn_role_override else (0.24, 0.24, 0.26, 1)
+
+    def _select_creature(self, creature_id):
+        self._spawn_creature_id = creature_id
+        self._update_spawn_ui()
+
+    def _select_role(self, role):
+        self._spawn_role_override = role
+        self._update_spawn_ui()
+
+    def _spawn_custom(self):
+        try:
+            level_str = self._level_entry.get()
+            level = int(level_str)
+        except ValueError:
+            level = 1
+        
+        self._spawn_entity(self._spawn_creature_id, level=level, role=self._spawn_role_override)
 
     def _spawn_benchmark(self, offset):
         target_level = max(1, self.app.skills.get_combat_level() + offset)

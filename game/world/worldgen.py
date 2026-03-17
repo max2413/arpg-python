@@ -14,7 +14,7 @@ from panda3d.core import (
 )
 
 from game.entities.creatures import Creature
-from game.world.resources import Tree, Rock, FishingSpot, HerbPatch
+from game.world.resources import FishingSpot, HerbPatch, Rock, Tree
 
 WORLD_HALF = 500
 SAFE_RADIUS = 50
@@ -150,21 +150,33 @@ def generate_world(render, bullet_world, terrain, seed=42, parent=None, layout=N
             pos = tuple(entry["pos"])
             scale = entry.get("scale", 1.0)
             if kind == "tree":
-                resources.append(Tree(scene_root, bullet_world, pos, scale=scale))
+                resources.append(Tree(scene_root, bullet_world, pos, scale=scale, item_id=entry.get("item_id", "pine_log")))
             elif kind == "rock":
-                resources.append(Rock(scene_root, bullet_world, pos, scale=scale))
+                resources.append(Rock(scene_root, bullet_world, pos, scale=scale, item_id=entry.get("item_id", "copper_ore")))
             elif kind == "fishing":
                 resources.append(FishingSpot(scene_root, bullet_world, pos))
+            elif kind == "herb":
+                resources.append(HerbPatch(scene_root, bullet_world, pos, herb_type=entry.get("item_id", "marigold")))
 
         for entry in layout.get("hostiles", []):
             kind = entry["type"]
             pos = tuple(entry["pos"])
             patrol_center = tuple(entry.get("patrol_center", entry["pos"]))
+            level = entry.get("level")
+            level_range = entry.get("level_range")
+            role = entry.get("role")
+            
+            if level_range:
+                level_range = tuple(level_range)
+
             hostiles.append(
                 Creature(
                     scene_root,
                     pos,
                     creature_id=kind,
+                    level=level,
+                    level_range=level_range,
+                    role=role,
                     patrol_center=patrol_center,
                     terrain=terrain,
                     bullet_world=bullet_world,
@@ -203,22 +215,33 @@ def _build_layout(seed, river_paths, forest_centers, ore_centers, resources, hos
         if isinstance(resource, Tree):
             entry["type"] = "tree"
             entry["scale"] = resource.scale
+            entry["item_id"] = resource.item_id
         elif isinstance(resource, Rock):
             entry["type"] = "rock"
             entry["scale"] = resource.scale
+            entry["item_id"] = resource.item_id
         elif isinstance(resource, FishingSpot):
             entry["type"] = "fishing"
+        elif isinstance(resource, HerbPatch):
+            entry["type"] = "herb"
+            entry["item_id"] = resource.item_id
         else:
             continue
         layout["resources"].append(entry)
     for hostile in hostiles:
-        layout["hostiles"].append(
-            {
-                "type": hostile.creature_id,
-                "pos": [hostile.pos.x, hostile.pos.y, hostile.pos.z],
-                "patrol_center": [hostile.patrol_center.x, hostile.patrol_center.y, hostile.patrol_center.z],
-            }
-        )
+        entry = {
+            "type": hostile.creature_id,
+            "pos": [hostile.pos.x, hostile.pos.y, hostile.pos.z],
+            "patrol_center": [hostile.patrol_center.x, hostile.patrol_center.y, hostile.patrol_center.z],
+        }
+        if hasattr(hostile, "_level_range") and hostile._level_range:
+            entry["level_range"] = list(hostile._level_range)
+        if hasattr(hostile, "_current_level"):
+            entry["level"] = hostile._current_level
+        if hasattr(hostile, "_role_override") and hostile._role_override:
+            entry["role"] = hostile._role_override
+            
+        layout["hostiles"].append(entry)
     return layout
 
 
@@ -476,7 +499,12 @@ def _generate_forests(rng, render, bullet_world, terrain, occupied, resources, f
                 TREE_BASE_SCALE * (1.0 + TREE_SCALE_VARIATION),
             )
             occupied.append((x, y))
-            resources.append(Tree(render, bullet_world, (x, y, z), scale=scale))
+            tree_item = rng.choices(
+                ["pine_log", "ash_log", "yew_log"],
+                weights=(0.62, 0.28, 0.10),
+                k=1,
+            )[0]
+            resources.append(Tree(render, bullet_world, (x, y, z), scale=scale, item_id=tree_item))
 
 
 def _generate_ore_patches(rng, render, bullet_world, terrain, occupied, resources, ore_centers, cluster_centers):
@@ -501,11 +529,16 @@ def _generate_ore_patches(rng, render, bullet_world, terrain, occupied, resource
                 ROCK_BASE_SCALE * (1.0 + ROCK_SCALE_VARIATION),
             )
             occupied.append((x, y))
-            resources.append(Rock(render, bullet_world, (x, y, z), scale=scale))
+            ore_item = rng.choices(
+                ["copper_ore", "iron_ore", "coal"],
+                weights=(0.58, 0.27, 0.15),
+                k=1,
+            )[0]
+            resources.append(Rock(render, bullet_world, (x, y, z), scale=scale, item_id=ore_item))
 
 
 def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
-    def _spawn(count, creature_id):
+    def _spawn(count, creature_id, role_override=None):
         for _ in range(count):
             for _ in range(150):
                 angle = rng.uniform(0.0, math.tau)
@@ -520,10 +553,27 @@ def _generate_hostiles(rng, render, bullet_world, terrain, occupied, hostiles):
                     continue
                 z = terrain.height_at(x, y)
                 occupied.append((x, y))
+
+                # Calculate level range based on distance
+                # Distance 100-430 maps to roughly levels 1-15
+                base_lvl = int(1 + (dist - 100) / 330 * 14)
+                level_range = (max(1, base_lvl - 1), min(20, base_lvl + 2))
+                
+                # Role and Level logic
+                from game.entities.creatures import CREATURE_DEFS
+                c_data = CREATURE_DEFS.get(creature_id, {})
+                role = role_override or c_data.get("role", "normal")
+                
+                if role == "critter":
+                    # Force critters to level 1 for now
+                    level_range = (1, 1)
+
                 hostile = Creature(
                     render,
                     (x, y, z),
                     creature_id=creature_id,
+                    level_range=level_range,
+                    role=role_override,
                     patrol_center=(x, y, z),
                     terrain=terrain,
                     bullet_world=bullet_world,
@@ -545,7 +595,7 @@ def _generate_herbs(rng, render, bullet_world, terrain, occupied, resources, cx,
             continue
         x, y = pos
         z = terrain.height_at(x, y)
-        herb_type = rng.choice(["marigold", "belladonna"])
+        herb_type = rng.choice(["marigold", "belladonna", "bloodmoss"])
         occupied.append((x, y))
         resources.append(HerbPatch(render, bullet_world, (x, y, z), herb_type=herb_type))
 

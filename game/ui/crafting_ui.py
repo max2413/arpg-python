@@ -13,6 +13,7 @@ import game.services.crafting as crafting_svc
 class CraftingUI(DraggableWindow):
     def __init__(self, app):
         self.app = app
+        self._active_craft = None
         super().__init__(
             "Crafting",
             frame_size=(-0.7, 0.7, -0.65, 0.65),
@@ -97,6 +98,10 @@ class CraftingUI(DraggableWindow):
         
         scroll["canvasSize"] = (-0.6, 0.6, min(-0.1, y), 0)
 
+    def hide(self):
+        self.cancel_active_craft()
+        super().hide()
+
     def _build_recipe_row(self, parent, rid, recipe, y):
         item_def = get_item_def(recipe["output"]["id"])
         if not item_def: return
@@ -115,6 +120,7 @@ class CraftingUI(DraggableWindow):
         skill_lvl = self.app.skills.get_level(recipe["skill"])
         can_craft_lvl = skill_lvl >= recipe["level"]
         station_name = "Anywhere" if recipe["station"] == "any" else recipe["station"].capitalize()
+        craft_time = float(recipe.get("craft_time", 1.5))
         color = (1, 1, 1, 1) if can_craft_lvl else (0.8, 0.3, 0.3, 1)
         
         OnscreenText(
@@ -129,6 +135,14 @@ class CraftingUI(DraggableWindow):
             text=f"Station: {station_name}",
             parent=parent,
             pos=(0.02, y + 0.02),
+            scale=0.028,
+            fg=(0.72, 0.72, 0.78, 1),
+            align=TextNode.ALeft
+        )
+        OnscreenText(
+            text=f"Time: {craft_time:.1f}s",
+            parent=parent,
+            pos=(0.26, y + 0.02),
             scale=0.028,
             fg=(0.72, 0.72, 0.78, 1),
             align=TextNode.ALeft
@@ -154,12 +168,12 @@ class CraftingUI(DraggableWindow):
 
         # Craft Button
         can_use_station = self._can_access_recipe(recipe)
-        can_craft = can_craft_lvl and has_mats and can_use_station
+        can_craft = can_craft_lvl and has_mats and can_use_station and self._active_craft is None
         craft_button = create_text_button(
             parent,
             "Craft" if can_use_station else "Need Station",
             (0.45, 0, y),
-            self._do_craft,
+            self._start_craft,
             scale=0.04,
             min_half_width=1.3,
             max_half_width=None,
@@ -171,10 +185,68 @@ class CraftingUI(DraggableWindow):
         craft_button["state"] = DGG.NORMAL if can_craft else DGG.DISABLED
         TOOLTIP_MANAGER.bind(craft_button, lambda recipe=recipe: self._recipe_tooltip(recipe))
 
-    def _do_craft(self, rid, recipe):
-        # Double check mats
+    def _start_craft(self, rid, recipe):
+        if self._active_craft is not None:
+            return
+        if hasattr(self.app, "player") and self.app.player.is_action_interrupting():
+            self.app.hud.show_prompt("Stand still to craft")
+            return
+        if not self._can_access_recipe(recipe):
+            return
         for item_id, qty in recipe["inputs"].items():
             if self.app.inventory.count_item(item_id) < qty:
+                self.app.hud.show_prompt("Missing materials")
+                return
+        self._active_craft = {
+            "rid": rid,
+            "recipe": recipe,
+            "elapsed": 0.0,
+            "total": float(recipe.get("craft_time", 1.5)),
+        }
+        self.app.hud.show_cast_progress(f"Crafting {recipe['name']}", 0.0, self._active_craft["total"])
+        self.refresh()
+
+    def update(self, dt):
+        if self._active_craft is None:
+            return
+        player = getattr(self.app, "player", None)
+        if player is None:
+            self.cancel_active_craft()
+            return
+        if not self.root.isHidden() and player.is_action_interrupting():
+            self.cancel_active_craft("Crafting interrupted")
+            return
+        recipe = self._active_craft["recipe"]
+        self._active_craft["elapsed"] += dt
+        player.play_work_animation()
+        self.app.hud.show_cast_progress(
+            f"Crafting {recipe['name']}",
+            self._active_craft["elapsed"],
+            self._active_craft["total"],
+        )
+        if self._active_craft["elapsed"] >= self._active_craft["total"]:
+            self._complete_craft()
+
+    def cancel_active_craft(self, message=None):
+        if self._active_craft is None:
+            return
+        self._active_craft = None
+        self.app.hud.hide_cast_progress()
+        if message:
+            self.app.hud.show_prompt(message)
+            self.app.hud.add_log(message)
+        self.refresh()
+
+    def _complete_craft(self):
+        if self._active_craft is None:
+            return
+        recipe = self._active_craft["recipe"]
+        rid = self._active_craft["rid"]
+
+        # Double check mats at completion so interrupts or prior actions never consume early.
+        for item_id, qty in recipe["inputs"].items():
+            if self.app.inventory.count_item(item_id) < qty:
+                self.cancel_active_craft("Missing materials")
                 return
 
         # Consume inputs
@@ -198,7 +270,9 @@ class CraftingUI(DraggableWindow):
         if lvl_up > 0:
             self.app.hud.show_prompt(f"{recipe['skill']} level up! Level {self.app.skills.get_level(recipe['skill'])}")
             self.app.hud.add_log(f"{recipe['skill']} level up! Level {self.app.skills.get_level(recipe['skill'])}")
-        
+
+        self._active_craft = None
+        self.app.hud.hide_cast_progress()
         self.app.hud.refresh_inventory()
         self.app.hud.refresh_skills()
         self.refresh()
@@ -208,6 +282,7 @@ class CraftingUI(DraggableWindow):
             recipe["name"],
             f"Skill: {recipe['skill']} Lv {recipe['level']}",
             f"Station: {'Anywhere' if recipe['station'] == 'any' else recipe['station'].capitalize()}",
+            f"Craft Time: {float(recipe.get('craft_time', 1.5)):.1f}s",
             f"Produces: {recipe['output']['qty']}x {get_item_name(recipe['output']['id'])}",
             f"XP: {recipe['xp']}",
             "",

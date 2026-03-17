@@ -7,7 +7,8 @@ from panda3d.core import TextNode
 from direct.gui.DirectGui import OnscreenText
 
 from game.entities.npc import InteractableNpc, attach_billboard_label, build_humanoid_npc
-from game.systems.inventory import Inventory
+from game.systems.inventory import Inventory, sanitize_inventory_payload
+from game.systems.paths import data_path, save_path
 from game.ui.widgets import DraggableWindow, ItemSlotCollection, build_grid_slot_defs
 from game.world.structures import build_structure_shell
 
@@ -17,16 +18,9 @@ BANK_COLS = 8
 BANK_ROWS = 10
 SLOT_SIZE = 0.075
 SLOT_GAP = 0.004
-SAVE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data",
-    "bank.json",
-)
-LEGACY_SAVE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data",
-    "save.json",
-)
+SAVE_PATH = save_path("bank.json")
+LEGACY_BANK_PATH = data_path("bank.json")
+LEGACY_SAVE_PATH = data_path("save.json")
 BANK_SCALE = 2.0
 
 
@@ -134,7 +128,14 @@ class Bank(InteractableNpc):
         if os.path.exists(SAVE_PATH):
             try:
                 with open(SAVE_PATH) as handle:
-                    self.bank_inv.from_dict(json.load(handle))
+                    self.bank_inv.from_dict(sanitize_inventory_payload(json.load(handle)))
+            except Exception:
+                pass
+            return
+        if os.path.exists(LEGACY_BANK_PATH):
+            try:
+                with open(LEGACY_BANK_PATH) as handle:
+                    self.bank_inv.from_dict(sanitize_inventory_payload(json.load(handle)))
             except Exception:
                 pass
             return
@@ -143,7 +144,7 @@ class Bank(InteractableNpc):
                 with open(LEGACY_SAVE_PATH) as handle:
                     data = json.load(handle)
                 if "slots" in data and "inventory" not in data:
-                    self.bank_inv.from_dict(data)
+                    self.bank_inv.from_dict(sanitize_inventory_payload(data))
             except Exception:
                 pass
 

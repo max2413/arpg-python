@@ -816,14 +816,19 @@ def build_grid_slot_defs(cols, rows, slot_size, slot_gap, origin_x, origin_z):
 def build_equipment_slot_defs(slot_size, origin_x, origin_z):
     positions = {
         "head": (origin_x + slot_size * 1.1, origin_z),
+        "necklace": (origin_x + slot_size * 2.2, origin_z),
         "weapon": (origin_x, origin_z - slot_size * 1.15),
         "chest": (origin_x + slot_size * 1.1, origin_z - slot_size * 1.15),
         "offhand": (origin_x + slot_size * 2.2, origin_z - slot_size * 1.15),
-        "ranged": (origin_x + slot_size * 2.2, origin_z - slot_size * 2.3),
+        "hands": (origin_x, origin_z - slot_size * 2.3),
         "legs": (origin_x + slot_size * 1.1, origin_z - slot_size * 2.3),
+        "ring": (origin_x + slot_size * 2.2, origin_z - slot_size * 2.3),
+        "ranged": (origin_x, origin_z - slot_size * 3.45),
+        "feet": (origin_x + slot_size * 1.1, origin_z - slot_size * 3.45),
     }
     slot_defs = []
     for slot_name, meta in EQUIPMENT_SLOTS.items():
-        x, z = positions[slot_name]
-        slot_defs.append({"key": slot_name, "x": x, "z": z, "label": meta["label"]})
+        if slot_name in positions:
+            x, z = positions[slot_name]
+            slot_defs.append({"key": slot_name, "x": x, "z": z, "label": meta["label"]})
     return slot_defs

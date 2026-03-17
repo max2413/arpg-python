@@ -86,9 +86,9 @@ def create_tutorial_quest():
         "The Hunter's Path",
         [
             {"text": "Kill a Wolf", "count": 0, "target": 1, "type": "kill", "id": "wolf"},
-            {"text": "Skin a Wolf Carcass", "count": 0, "target": 1, "type": "skin", "id": "leather"},
+            {"text": "Skin a Wolf Carcass", "count": 0, "target": 1, "type": "skin", "id": "cured_leather"},
             {"text": "Gather Wood and Ore", "count": 0, "target": 2, "type": "gather", "id": "any"}, # Simplified
-            {"text": "Craft a Bronze Sword", "count": 0, "target": 1, "type": "craft", "id": "bronze_sword"}
+            {"text": "Craft a Copper Sword", "count": 0, "target": 1, "type": "craft", "id": "copper_sword"}
         ],
         {"gold": 100, "xp": {"Melee": 100, "Defense": 100, "Blacksmithing": 100}}
     )

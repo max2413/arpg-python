@@ -13,7 +13,8 @@ from game.systems.balance import (
 SKILLS = [
     "Melee", "Ranged", "Magic", "Defense",
     "Woodcutting", "Mining", "Fishing", "Skinning", "Foraging",
-    "Blacksmithing", "Tailoring", "Cooking", "Alchemy"
+    "Blacksmithing", "Leatherworking", "Tailoring", "Fletching",
+    "Cooking", "Alchemy", "Enchanting"
 ]
 
 

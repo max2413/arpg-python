@@ -1,5 +1,6 @@
-- Click to target appears broken now
-- need a dev tool to remove entities too, as currently when you use dev to spawn it continues to respawn.
-- dev tool (f1) is quite bloated and could use some rework to make it nicer. consider a tabed window
-- menu buttons in the bottom right seem to be overly cluttered. could these be added to a mouse over or click to open sub menu (like a traditional file menu).
-- seems like an oversite to not have scaled armor at the very least with creatures. 
+- all stations except forge can be doubled in size. 
+- campfire needs its logs portion doubled but flame can remain the same
+- forge could increase by 20%
+- dev zone floor (cobleston) seems to have its colision defined poorly
+- if the vendors in the dev zone cannot be seated, lets set them statically idle
+- for only the dev zome lets let the carcus resawn for testing

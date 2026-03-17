@@ -28,7 +28,8 @@ from game.systems.stats import StatManager
 
 MOVE_SPEED   = 12.0
 SPRINT_MULT  = 5.0   # speed multiplier while shift is held
-JUMP_SPEED   = 12.0
+JUMP_SPEED   = 9.0
+JUMP_HEIGHT  = 3.0
 TURN_SPEED   = 180.0
 SPRINT_TURN_MULT = 1.6
 BACKPEDAL_MULT = 0.75
@@ -58,10 +59,9 @@ MELEE_ABILITY_RANGE = 3.1
 RANGED_ABILITY_RANGE = 54.0
 MELEE_ABILITY_DAMAGE = 18
 RANGED_ABILITY_DAMAGE = 14
-# The shared character model is already grounded at its feet; the player-only
-# controller still needs a slightly deeper visual offset to line the feet up
-# with the Bullet character capsule in practice.
-PLAYER_VISUAL_OFFSET_Z = -(PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS) - 0.5
+# Align the player's visual root to the Bullet capsule bottom and then account
+# for the humanoid model's own internal foot grounding offset.
+PLAYER_VISUAL_OFFSET_Z = -(PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + CHARACTER_FOOT_Z)
 GROUND_MARKER_OUTER = (0.02, 0.02, 0.02, 0.42)
 GROUND_MARKER_INNER = (0.92, 0.36, 0.12, 0.18)
 
@@ -163,7 +163,7 @@ class Player:
 
     def refresh_equipment_models(self):
         """Update visible equipment models based on inventory dynamically."""
-        for slot_name in ["weapon", "offhand", "ranged", "head", "chest", "legs"]:
+        for slot_name in ["weapon", "offhand", "ranged", "head", "chest", "legs", "hands", "feet"]:
             stack = self.inventory.equipment.get_slot(slot_name)
             if stack:
                 model_np = build_equipment_model(stack["id"])
@@ -260,7 +260,7 @@ class Player:
         self.char_node.setLinearMovement(velocity, False)
 
         if self._jump_pending and self.char_node.isOnGround():
-            self.char_node.setMaxJumpHeight(6.0)
+            self.char_node.setMaxJumpHeight(JUMP_HEIGHT)
             self.char_node.setJumpSpeed(JUMP_SPEED)
             self.char_node.doJump()
             self._jump_pending = False
@@ -297,6 +297,9 @@ class Player:
 
     def is_moving(self):
         return self._keys["w"] or self._keys["s"]
+
+    def is_action_interrupting(self):
+        return self.is_moving() or self._jump_pending or not self.char_node.isOnGround()
 
     def is_advancing(self):
         return self._keys["w"]
@@ -348,6 +351,10 @@ class Player:
             self._app.hud.add_log(f"{skill_name} level up! Level {self.stats.skills.get_level(skill_name)}")
         elif self._app and hasattr(self._app, "hud"):
             self._app.hud.refresh_skills()
+
+    def play_work_animation(self):
+        if hasattr(self, "model") and self.model:
+            self.model.play_work()
 
     def start_auto_attack(self, style):
         if style not in ("melee", "ranged"):

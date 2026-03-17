@@ -3,55 +3,85 @@
     "slots": [
       {
         "id": "gold",
-        "quantity": 17183
+        "quantity": 17238
       },
       {
         "id": "belladonna",
-        "quantity": 3
-      },
-      {
-        "id": "ore",
         "quantity": 6
       },
-      null,
-      null,
-      null,
-      null,
       {
-        "id": "wood",
-        "quantity": 8
-      },
-      null,
-      null,
-      {
-        "id": "raw_meat",
-        "quantity": 8
+        "id": "copper_ore",
+        "quantity": 2
       },
       {
-        "id": "canvas_pants",
+        "id": "fish",
         "quantity": 1
       },
-      null,
       {
-        "id": "leather",
-        "quantity": 9
+        "id": "marigold",
+        "quantity": 1
+      },
+      {
+        "id": "iron_ore",
+        "quantity": 2
+      },
+      {
+        "id": "minor_healing_salve",
+        "quantity": 1
+      },
+      {
+        "id": "leather_string",
+        "quantity": 2
+      },
+      {
+        "id": "adamant_ore",
+        "quantity": 1
+      },
+      {
+        "id": "mithril_ore",
+        "quantity": 1
+      },
+      {
+        "id": "raw_meat",
+        "quantity": 17
+      },
+      {
+        "id": "coal",
+        "quantity": 1
+      },
+      {
+        "id": "starbloom",
+        "quantity": 1
+      },
+      {
+        "id": "elder_log",
+        "quantity": 1
       },
       {
         "id": "cooked_fish",
-        "quantity": 16
+        "quantity": 18
       },
       {
         "id": "cooked_meat",
         "quantity": 21
       },
-      null,
-      null,
-      null,
-      null,
       {
-        "id": "bronze_sword",
+        "id": "magic_log",
         "quantity": 1
       },
+      {
+        "id": "yew_log",
+        "quantity": 1
+      },
+      {
+        "id": "ash_log",
+        "quantity": 1
+      },
+      {
+        "id": "copper_bar",
+        "quantity": 1
+      },
+      null,
       null,
       null,
       null,
@@ -62,48 +92,40 @@
     ],
     "equipment": {
       "slots": {
-        "head": {
-          "id": "cloth_hood",
-          "quantity": 1
-        },
-        "chest": {
-          "id": "traveler_tunic",
-          "quantity": 1
-        },
-        "legs": {
-          "id": "canvas_pants",
-          "quantity": 1
-        },
-        "weapon": {
-          "id": "bronze_sword",
-          "quantity": 1
-        },
+        "head": null,
+        "chest": null,
+        "legs": null,
+        "hands": null,
+        "feet": null,
+        "weapon": null,
         "ranged": {
           "id": "magic_wand",
           "quantity": 1
         },
-        "offhand": {
-          "id": "oak_shield",
-          "quantity": 1
-        }
+        "offhand": null,
+        "ring": null,
+        "necklace": null
       }
     }
   },
   "skills": {
     "skill_xp": {
-      "Melee": 7597.128918275429,
+      "Melee": 10112,
       "Ranged": 0,
-      "Magic": 0,
-      "Defense": 155.56069674471726,
-      "Woodcutting": 125,
-      "Mining": 175,
-      "Fishing": 90,
-      "Skinning": 840,
-      "Foraging": 75,
-      "Blacksmithing": 290,
+      "Magic": 523,
+      "Defense": 310,
+      "Woodcutting": 300,
+      "Mining": 490,
+      "Fishing": 150,
+      "Skinning": 1040,
+      "Foraging": 175,
+      "Blacksmithing": 310,
+      "Leatherworking": 18,
       "Tailoring": 200,
-      "Cooking": 2075,
-      "Alchemy": 0
+      "Fletching": 0,
+      "Cooking": 2115,
+      "Alchemy": 20,
+      "Enchanting": 0
     }
   },
   "quests": {

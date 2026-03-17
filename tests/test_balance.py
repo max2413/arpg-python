@@ -61,19 +61,19 @@ class BalanceMathTests(unittest.TestCase):
         self.assertGreater(high["melee_damage"], low["melee_damage"])
 
     def test_creature_roles_and_scaling_modify_runtime_stats(self):
-        standard = balance.creature_runtime_stats({"level": 5})
-        passive = balance.creature_runtime_stats({"level": 5, "role": "passive"})
-        bruiser = balance.creature_runtime_stats({"level": 5, "role": "bruiser"})
-        self.assertLess(passive["max_health"], standard["max_health"])
-        self.assertEqual(passive["melee_damage"], 0.0)
-        self.assertGreater(bruiser["max_health"], standard["max_health"])
-        self.assertGreater(bruiser["armor"], standard["armor"])
+        normal = balance.creature_runtime_stats({"level": 5})
+        critter = balance.creature_runtime_stats({"level": 5, "role": "critter"})
+        elite = balance.creature_runtime_stats({"level": 5, "role": "elite"})
+        self.assertLess(critter["max_health"], normal["max_health"])
+        self.assertLess(critter["melee_damage"], normal["melee_damage"])
+        self.assertGreater(elite["max_health"], normal["max_health"])
+        self.assertGreater(elite["armor"], normal["armor"])
 
     def test_explicit_creature_stat_overrides_win(self):
         stats = balance.creature_runtime_stats(
             {
                 "level": 4,
-                "role": "ranged",
+                "role": "normal",
                 "combat": {"style": "ranged"},
                 "stats": {"max_health": 123.0, "ranged_damage": 17.0},
             }

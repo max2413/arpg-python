@@ -5,20 +5,93 @@ import json
 import os
 
 from game.services.bank import Bank
+from game.services.crafting import (
+    AlchemyTable,
+    Anvil,
+    Campfire,
+    EnchantingTable,
+    FletchingBench,
+    Forge,
+    Loom,
+    TanningRack,
+)
 from game.services.vendor import Vendor
-from game.services.crafting import Anvil, Campfire
+from game.systems.paths import cache_path
 from game.world.collision import attach_static_box_collider, remove_static_collider
 from game.world.geometry import make_box_geom
-from game.world.structures import build_structure_shell
+from game.world.resources import FishingSpot, HerbPatch, Rock, Tree, WaterSource
 from game.world.teleporter import Teleporter
 from game.world.world import World
 from game.world.worldgen import generate_world
 
-OVERWORLD_SAVE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data",
-    "overworld_level.json",
-)
+OVERWORLD_SAVE_PATH = cache_path("overworld_level.json")
+
+COBBLE_GROUT_Z = 0.07
+COBBLE_COLLIDER_Z = 0.09
+COBBLE_TILE_Z = 0.16
+
+DEV_ZONE_RESOURCE_ROWS = [
+    {
+        "y": 26.0,
+        "z_offset": 0.12,
+        "entries": [
+            ("tree", {"scale": 1.5, "item_id": "pine_log"}),
+            ("tree", {"scale": 1.5, "item_id": "ash_log"}),
+            ("tree", {"scale": 1.5, "item_id": "yew_log"}),
+            ("tree", {"scale": 1.5, "item_id": "magic_log"}),
+            ("tree", {"scale": 1.5, "item_id": "elder_log"}),
+        ],
+    },
+    {
+        "y": 10.0,
+        "z_offset": 0.12,
+        "entries": [
+            ("rock", {"scale": 1.1, "item_id": "copper_ore"}),
+            ("rock", {"scale": 1.1, "item_id": "iron_ore"}),
+            ("rock", {"scale": 1.1, "item_id": "coal"}),
+            ("rock", {"scale": 1.1, "item_id": "mithril_ore"}),
+            ("rock", {"scale": 1.1, "item_id": "adamant_ore"}),
+        ],
+    },
+    {
+        "y": -6.0,
+        "z_offset": 0.12,
+        "entries": [
+            ("herb", {"herb_type": "marigold"}),
+            ("herb", {"herb_type": "belladonna"}),
+            ("herb", {"herb_type": "bloodmoss"}),
+            ("herb", {"herb_type": "dragons_tongue"}),
+            ("herb", {"herb_type": "starbloom"}),
+            ("herb", {"herb_type": "void_spore"}),
+        ],
+    },
+    {
+        "y": -22.0,
+        "z_offset": 0.12,
+        "entries": [
+            ("water", {}),
+            ("fishing", {"z_lift": 0.34}),
+        ],
+    },
+]
+
+DEV_ZONE_STATIONS = [
+    (Anvil, -42.0, -44.0),
+    (Forge, -28.0, -44.0),
+    (Campfire, -14.0, -44.0),
+    (TanningRack, 0.0, -44.0),
+    (Loom, 14.0, -44.0),
+    (FletchingBench, 28.0, -44.0),
+    (AlchemyTable, 42.0, -44.0),
+    (EnchantingTable, 56.0, -44.0),
+]
+
+DEV_ZONE_VENDORS = [
+    ("materials_supplier", -8.0, -62.0, "crate_stack", 1.95),
+    ("smith_supplier", 10.0, -62.0, "chair", 0.75),
+    ("ranger_supplier", 28.0, -62.0, "crate_stack", 1.95),
+    ("alchemist_supplier", 46.0, -62.0, "chair", 0.75),
+]
 
 
 @dataclass
@@ -72,22 +145,24 @@ class CobblestoneField:
         start_x = cx - (tiles_per_side * step) * 0.5 + step * 0.5
         start_y = cy - (tiles_per_side * step) * 0.5 + step * 0.5
 
+        pad_size = tiles_per_side * step + self.gap + 0.8
         grout = self.root.attachNewNode(
             make_box_geom(
-                tiles_per_side * step + self.gap,
-                tiles_per_side * step + self.gap,
-                0.08,
+                pad_size,
+                pad_size,
+                0.14,
                 (0.24, 0.24, 0.26, 1.0),
             )
         )
-        grout.setPos(cx, cy, flat_z + 0.02)
+        grout.setPos(cx, cy, flat_z + COBBLE_GROUT_Z)
+        tile_z = flat_z + COBBLE_TILE_Z
         self._colliders.append(
             attach_static_box_collider(
                 self.render,
                 self.bullet_world,
                 "cobble_pad",
-                (cx, cy, flat_z + 0.04),
-                (tiles_per_side * step + self.gap, tiles_per_side * step + self.gap, 0.08),
+                (cx, cy, flat_z + COBBLE_COLLIDER_Z),
+                (pad_size, pad_size, 0.24),
             )
         )
 
@@ -95,18 +170,12 @@ class CobblestoneField:
             for gx in range(tiles_per_side):
                 x = start_x + gx * step
                 y = start_y + gy * step
-                z = flat_z + 0.10
                 tone = (gx * 37 + gy * 19) % 5
                 shade = 0.52 + tone * 0.03
                 tile = self.root.attachNewNode(
-                    make_box_geom(
-                        self.tile_size,
-                        self.tile_size,
-                        0.16,
-                        (shade, shade, shade + 0.02, 1.0),
-                    )
+                    make_box_geom(self.tile_size, self.tile_size, 0.12, (shade, shade, shade + 0.02, 1.0))
                 )
-                tile.setPos(x, y, z)
+                tile.setPos(x, y, tile_z)
 
     def remove_from_world(self):
         for collider in self._colliders:
@@ -116,20 +185,26 @@ class CobblestoneField:
             self.root.removeNode()
 
 
-class StructureShellInstance:
-    def __init__(self, render, bullet_world, kind, pos, scale=1.0):
-        self.render = render
-        self.bullet_world = bullet_world
-        self.root = render.attachNewNode(f"{kind}_shell")
-        shell = build_structure_shell(kind, self.root, render, bullet_world, pos, scale=scale)
-        self.anchors = shell["anchors"]
-        self._colliders = shell["collision_nodes"]
+class DevPropCluster:
+    def __init__(self, render, pos, kind="crate"):
+        self.root = render.attachNewNode(f"dev_prop_{kind}")
         self.root.setPos(*pos)
+        if kind == "crate_stack":
+            lower = self.root.attachNewNode(make_box_geom(1.2, 1.2, 1.0, (0.42, 0.28, 0.14, 1.0)))
+            lower.setZ(0.5)
+            upper = self.root.attachNewNode(make_box_geom(1.0, 1.0, 0.9, (0.48, 0.32, 0.16, 1.0)))
+            upper.setPos(0.0, 0.0, 1.45)
+        elif kind == "chair":
+            seat = self.root.attachNewNode(make_box_geom(1.0, 1.0, 0.16, (0.38, 0.24, 0.14, 1.0)))
+            seat.setZ(0.6)
+            back = self.root.attachNewNode(make_box_geom(1.0, 0.14, 1.2, (0.34, 0.22, 0.12, 1.0)))
+            back.setPos(0.0, -0.42, 1.18)
+            for x in (-0.34, 0.34):
+                for y in (-0.34, 0.34):
+                    leg = self.root.attachNewNode(make_box_geom(0.14, 0.14, 0.6, (0.28, 0.18, 0.10, 1.0)))
+                    leg.setPos(x, y, 0.3)
 
     def remove_from_world(self):
-        for collider in self._colliders:
-            remove_static_collider(self.bullet_world, collider)
-        self._colliders = []
         if self.root is not None and not self.root.isEmpty():
             self.root.removeNode()
 
@@ -143,7 +218,7 @@ class LevelManager:
         self._active_level = None
         self._registry = {
             "overworld": self._build_overworld,
-            "test_structure": self._build_test_structure,
+            "dev_zone": self._build_dev_zone,
         }
 
     def load_level(self, level_id, entry_key="default", hud=None, force_regenerate=False):
@@ -174,10 +249,7 @@ class LevelManager:
             print(f"[level-cache] failed to read overworld cache: {exc}")
             return None
         if layout.get("seed") != self.seed:
-            print(
-                f"[level-cache] overworld cache seed mismatch: "
-                f"cached={layout.get('seed')} current={self.seed}"
-            )
+            print(f"[level-cache] overworld cache seed mismatch: cached={layout.get('seed')} current={self.seed}")
             return None
         print(f"[level-cache] loaded overworld cache: {OVERWORLD_SAVE_PATH}")
         return layout
@@ -212,7 +284,7 @@ class LevelManager:
             self._save_overworld_layout(layout)
 
         bank = Bank(self.render, self.bullet_world, (20, 0, 0), self.inventory)
-        vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory)
+        vendor = Vendor(self.render, self.bullet_world, (-20, 0, 0), self.inventory, vendor_id="materials_supplier")
         anvil = Anvil(self.render, self.bullet_world, (10, 10, world.terrain.height_at(10, 10)))
         campfire = Campfire(self.render, self.bullet_world, (-10, 10, world.terrain.height_at(-10, 10)))
         teleporter_pos = (0, 32, world.terrain.height_at(0, 32))
@@ -220,14 +292,14 @@ class LevelManager:
             self.render,
             self.bullet_world,
             teleporter_pos,
-            "Press E to enter Test Structure",
-            "test_structure",
+            "Press E to enter Dev Zone",
+            "dev_zone",
             "from_overworld",
-            "Test Gate",
+            "Dev Gate",
         )
         spawn_points = {
             "default": (0, 0, world.terrain.height_at(0, 0) + 14.0),
-            "return_from_test": (0, 24, world.terrain.height_at(0, 24) + 14.0),
+            "return_from_dev": (0, 24, world.terrain.height_at(0, 24) + 14.0),
         }
         return LevelInstance(
             world=world,
@@ -239,41 +311,85 @@ class LevelManager:
             extras=[decor_root],
         )
 
-    def _build_test_structure(self, force_regenerate=False):
-        world = World(self.render, self.bullet_world, seed=self.seed ^ 0xABC, world_half=90)
-        world.terrain.spawn_flat_radius = 68.0
-        world.terrain.spawn_blend_radius = 88.0
+    def _build_resource(self, descriptor, pos):
+        kind, kwargs = descriptor
+        if kind == "tree":
+            return Tree(self.render, self.bullet_world, pos, **kwargs)
+        if kind == "rock":
+            return Rock(self.render, self.bullet_world, pos, **kwargs)
+        if kind == "herb":
+            return HerbPatch(self.render, self.bullet_world, pos, **kwargs)
+        if kind == "water":
+            return WaterSource(self.render, self.bullet_world, pos)
+        if kind == "fishing":
+            z_lift = kwargs.get("z_lift", 0.0)
+            return FishingSpot(self.render, self.bullet_world, (pos[0], pos[1], pos[2] + z_lift))
+        raise ValueError(f"Unknown dev-zone resource kind: {kind}")
+
+    def _spawn_resource_row(self, resources, world, y, entries, z_offset=0.0):
+        x = -40.0
+        for descriptor in entries:
+            z = world.terrain.height_at(x, y) + z_offset
+            resources.append(self._build_resource(descriptor, (x, y, z)))
+            x += 10.0
+
+    def _build_dev_zone(self, force_regenerate=False):
+        world = World(self.render, self.bullet_world, seed=self.seed ^ 0xABC, world_half=120)
+        world.terrain.spawn_flat_radius = 105.0
+        world.terrain.spawn_blend_radius = 118.0
         world.refresh_terrain()
 
-        cobbles = CobblestoneField(self.render, self.bullet_world, world.terrain, center=(0, 0), radius=44.0)
-        structure_pos = (0, 0, world.terrain.height_at(0, 0))
-        hall = StructureShellInstance(
-            self.render,
-            self.bullet_world,
-            "open_stone_hall",
-            structure_pos,
-            scale=1.0,
-        )
-        teleporter_pos = (0, 28, world.terrain.height_at(0, 28))
+        resources = []
+        interactables = []
+        extras = []
+
+        cobbles = CobblestoneField(self.render, self.bullet_world, world.terrain, center=(0, 0), radius=58.0)
+        extras.append(cobbles)
+
+        teleporter_pos = (0, 52, world.terrain.height_at(0, 52))
         teleporter = Teleporter(
             self.render,
             self.bullet_world,
             teleporter_pos,
             "Press E to return to Overworld",
             "overworld",
-            "return_from_test",
+            "return_from_dev",
             "Return Gate",
         )
+
+        for row in DEV_ZONE_RESOURCE_ROWS:
+            self._spawn_resource_row(resources, world, row["y"], row["entries"], z_offset=row["z_offset"])
+
+        for station_cls, x, y in DEV_ZONE_STATIONS:
+            interactables.append(station_cls(self.render, self.bullet_world, (x, y, world.terrain.height_at(x, y))))
+
+        bank_x, bank_y = -30.0, -62.0
+        interactables.append(Bank(self.render, self.bullet_world, (bank_x, bank_y, world.terrain.height_at(bank_x, bank_y)), self.inventory))
+
+        for vendor_id, x, y, prop_kind, height in DEV_ZONE_VENDORS:
+            z = world.terrain.height_at(x, y)
+            extras.append(DevPropCluster(self.render, (x, y, z), kind=prop_kind))
+            interactables.append(
+                Vendor(
+                    self.render,
+                    self.bullet_world,
+                    (x, y, z + height),
+                    self.inventory,
+                    vendor_id=vendor_id,
+                    static_idle=True,
+                )
+            )
+
         spawn_points = {
-            "default": (0, -18, world.terrain.height_at(0, -18) + 14.0),
-            "from_overworld": (0, -18, world.terrain.height_at(0, -18) + 14.0),
+            "default": (0, 44, world.terrain.height_at(0, 44) + 14.0),
+            "from_overworld": (0, 44, world.terrain.height_at(0, 44) + 14.0),
         }
         return LevelInstance(
             world=world,
-            resources=[],
+            resources=resources,
             hostiles=[],
-            interactables=[],
+            interactables=interactables,
             teleporters=[teleporter],
             spawn_points=spawn_points,
-            extras=[cobbles, hall],
+            extras=extras,
         )

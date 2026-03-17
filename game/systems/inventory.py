@@ -2,27 +2,30 @@
 
 import copy
 import json
-import os
+
+from game.systems.paths import data_path
 
 
 ITEM_CATEGORY_RAW = "raw_material"
 ITEM_CATEGORY_CURRENCY = "currency"
 ITEM_CATEGORY_EQUIPMENT = "equipment"
+ITEM_CATEGORY_CONSUMABLE = "consumable"
+ITEM_CATEGORY_ENHANCEMENT = "enhancement"
 
 EQUIPMENT_SLOTS = {
     "head": {"label": "Head"},
     "chest": {"label": "Chest"},
     "legs": {"label": "Legs"},
+    "hands": {"label": "Hands"},
+    "feet": {"label": "Feet"},
     "weapon": {"label": "Weapon"},
     "ranged": {"label": "Ranged"},
     "offhand": {"label": "Offhand"},
+    "ring": {"label": "Ring"},
+    "necklace": {"label": "Necklace"},
 }
 
-ITEMS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data",
-    "items.json",
-)
+ITEMS_PATH = data_path("items.json")
 
 
 def _normalize_item_defs(raw_items):
@@ -61,12 +64,18 @@ CATEGORY_LABELS = {
     ITEM_CATEGORY_RAW: "Raw Material",
     ITEM_CATEGORY_CURRENCY: "Currency",
     ITEM_CATEGORY_EQUIPMENT: "Equipment",
+    ITEM_CATEGORY_CONSUMABLE: "Consumable",
+    ITEM_CATEGORY_ENHANCEMENT: "Enhancement",
 }
 
 RANGED_SLOT_SUBTYPES = {"bow", "crossbow", "wand", "staff"}
 
 def get_item_def(item_id):
     return ITEMS.get(item_id)
+
+
+def has_item_def(item_id):
+    return item_id in ITEMS
 
 
 def get_item_name(item_id):
@@ -288,7 +297,8 @@ class Inventory:
         slots = data.get("slots", [])
         for i, stack in enumerate(slots):
             if i < len(self.slots):
-                self.slots[i] = clone_stack(stack)
+                if stack and has_item_def(stack.get("id")):
+                    self.slots[i] = clone_stack(stack)
         
         if "equipment" in data:
             self.equipment.from_dict(data["equipment"])
@@ -320,7 +330,8 @@ class EquipmentInventory:
     def from_dict(self, data):
         slots_data = data.get("slots", {})
         for slot_name in self.slots:
-            self.slots[slot_name] = clone_stack(slots_data.get(slot_name))
+            stack = slots_data.get(slot_name)
+            self.slots[slot_name] = clone_stack(stack) if stack and has_item_def(stack.get("id")) else None
         if "ranged" in self.slots and self.slots["ranged"] is None:
             weapon_stack = self.slots.get("weapon")
             if weapon_stack and is_ranged_slot_item(weapon_stack["id"]):
@@ -412,3 +423,19 @@ def move_item(source_container, source_slot, target_container, target_slot):
     source_container.set_slot(source_slot, target_stack)
     target_container.set_slot(target_slot, source_stack)
     return True
+
+
+def sanitize_inventory_payload(data):
+    payload = copy.deepcopy(data or {})
+    valid_slots = []
+    for stack in payload.get("slots", []):
+        valid_slots.append(clone_stack(stack) if stack and has_item_def(stack.get("id")) else None)
+    payload["slots"] = valid_slots
+
+    equipment = payload.get("equipment", {})
+    equipment_slots = equipment.get("slots", {})
+    clean_equipment = {}
+    for slot_name, stack in equipment_slots.items():
+        clean_equipment[slot_name] = clone_stack(stack) if stack and has_item_def(stack.get("id")) else None
+    payload["equipment"] = {"slots": clean_equipment}
+    return payload

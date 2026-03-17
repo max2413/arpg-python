@@ -202,9 +202,22 @@ class HUD:
         )
         self._target_panel.hide()
 
-    def refresh_target(self, name, health, max_health, target_level=None, player_level=None):
+    def refresh_target(self, name, health, max_health, target_level=None, player_level=None, target_role="normal"):
         self._target_panel.show()
-        self._target_name.setText(name)
+        
+        # Color and prefix name based on role
+        display_name = name
+        if target_role == "elite":
+            display_name = f"* {name} *"
+            self._target_name.node().setTextColor(1.0, 0.9, 0.4, 1.0)
+        elif target_role == "boss":
+            display_name = f"!!! {name} !!!"
+            self._target_name.node().setTextColor(1.0, 0.2, 0.2, 1.0)
+        else:
+            self._target_name.node().setTextColor(1.0, 0.85, 0.3, 1.0)
+            
+        self._target_name.setText(display_name)
+        
         if target_level is None:
             self._target_level.setText("")
         else:

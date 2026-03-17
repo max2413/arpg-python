@@ -34,25 +34,28 @@ def benchmark_report():
         )
 
 
-def creature_report():
+def creature_report(snapshot_level=5):
     creatures = _load_creatures()
-    _print_header("Creature Snapshot")
-    for creature_id, data in sorted(creatures.items(), key=lambda item: item[1].get("level", 1)):
-        level = int(data.get("level", 1))
-        role = data.get("role", "standard")
+    _print_header(f"Creature Snapshot (Simulated at Lv {snapshot_level})")
+    for creature_id, data in sorted(creatures.items(), key=lambda item: item[0]):
+        # Inject level for simulation since it's now dynamic
+        sim_data = dict(data)
+        sim_data["level"] = snapshot_level
+        
+        role = data.get("role", "normal")
         style = data.get("combat", {}).get("style", "melee")
-        runtime_stats = balance.creature_runtime_stats(data)
+        runtime_stats = balance.creature_runtime_stats(sim_data)
         hp = runtime_stats.get("max_health", 0.0)
         armor = runtime_stats.get("armor", 0.0)
         damage = runtime_stats.get(
             f"{style}_damage",
             runtime_stats.get("melee_damage", runtime_stats.get("ranged_damage", runtime_stats.get("magic_damage", 0.0))),
         )
-        benchmark_hp = balance.creature_max_hp_for_level(level)
+        benchmark_hp = balance.creature_max_hp_for_level(snapshot_level)
         override_keys = sorted(data.get("stats", {}).keys())
         override_suffix = f" | Overrides {', '.join(override_keys)}" if override_keys else ""
         print(
-            f"{data.get('name', creature_id):<12} Lv {level:<2} | "
+            f"{data.get('name', creature_id):<12} | "
             f"Role {role:<8} | Style {style:<6} | HP {hp:<7.1f} | "
             f"Armor {armor:<6.2f} | Damage {damage:<6.1f} | "
             f"HP vs Ref {hp / max(1.0, benchmark_hp):>4.0%}{override_suffix}"

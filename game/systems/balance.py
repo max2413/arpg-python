@@ -15,7 +15,7 @@ HP_PER_LEVEL = 10
 
 # Enemy reference helpers
 ENEMY_HP_BASE = 30
-ENEMY_HP_EXP = 1.8
+ENEMY_HP_EXP = 1.55
 
 # Damage
 DMG_BASE = 5
@@ -46,7 +46,18 @@ CREATURE_SCALING_KEYS = (
     "parry_factor",
 )
 CREATURE_ROLE_FACTORS = {
-    "standard": {
+    "critter": {
+        "health_factor": 0.3,
+        "armor_factor": 0.5,
+        "damage_factor": 0.4,
+        "evasion_factor": 1.2,
+        "accuracy_factor": 0.9,
+        "crit_factor": 0.5,
+        "block_factor": 0.0,
+        "parry_factor": 0.0,
+        "xp_multiplier": 0.5,
+    },
+    "normal": {
         "health_factor": 1.0,
         "armor_factor": 1.0,
         "damage_factor": 1.0,
@@ -55,46 +66,29 @@ CREATURE_ROLE_FACTORS = {
         "crit_factor": 1.0,
         "block_factor": 1.0,
         "parry_factor": 1.0,
+        "xp_multiplier": 1.0,
     },
-    "passive": {
-        "health_factor": 0.75,
-        "armor_factor": 0.55,
-        "damage_factor": 0.0,
-        "evasion_factor": 1.8,
-        "accuracy_factor": 0.9,
-        "crit_factor": 0.0,
-        "block_factor": 0.0,
-        "parry_factor": 0.0,
-    },
-    "ranged": {
-        "health_factor": 0.82,
-        "armor_factor": 0.8,
-        "damage_factor": 0.9,
-        "evasion_factor": 1.15,
-        "accuracy_factor": 1.08,
-        "crit_factor": 1.1,
-        "block_factor": 0.35,
-        "parry_factor": 0.25,
-    },
-    "nimble": {
-        "health_factor": 0.95,
-        "armor_factor": 0.85,
-        "damage_factor": 1.0,
-        "evasion_factor": 1.45,
-        "accuracy_factor": 1.04,
-        "crit_factor": 1.15,
-        "block_factor": 0.25,
-        "parry_factor": 0.4,
-    },
-    "bruiser": {
-        "health_factor": 1.15,
-        "armor_factor": 1.15,
-        "damage_factor": 1.0,
-        "evasion_factor": 0.8,
-        "accuracy_factor": 0.98,
-        "crit_factor": 0.8,
+    "elite": {
+        "health_factor": 2.5,
+        "armor_factor": 1.2,
+        "damage_factor": 1.4,
+        "evasion_factor": 1.1,
+        "accuracy_factor": 1.05,
+        "crit_factor": 1.2,
         "block_factor": 1.2,
-        "parry_factor": 0.5,
+        "parry_factor": 1.2,
+        "xp_multiplier": 3.0,
+    },
+    "boss": {
+        "health_factor": 8.0,
+        "armor_factor": 1.5,
+        "damage_factor": 2.0,
+        "evasion_factor": 1.2,
+        "accuracy_factor": 1.1,
+        "crit_factor": 1.5,
+        "block_factor": 1.5,
+        "parry_factor": 1.5,
+        "xp_multiplier": 10.0,
     },
 }
 
@@ -203,15 +197,15 @@ def creature_style_damage(level, style):
     return damage
 
 
-def creature_scaling_factors(role="standard", scaling=None):
-    role_key = str(role or "standard").lower()
-    factors = dict(CREATURE_ROLE_FACTORS.get(role_key, CREATURE_ROLE_FACTORS["standard"]))
+def creature_scaling_factors(role="normal", scaling=None):
+    role_key = str(role or "normal").lower()
+    factors = dict(CREATURE_ROLE_FACTORS.get(role_key, CREATURE_ROLE_FACTORS["normal"]))
     for key in CREATURE_SCALING_KEYS:
         factors[key] *= float((scaling or {}).get(key, 1.0))
     return factors
 
 
-def creature_scaled_stats(level, style="melee", role="standard", scaling=None):
+def creature_scaled_stats(level, style="melee", role="normal", scaling=None):
     factors = creature_scaling_factors(role, scaling)
     style_key = str(style or "melee").lower()
     stats = {
@@ -236,7 +230,7 @@ def creature_runtime_stats(creature_def):
     level = int(creature_def.get("level", 1))
     combat = creature_def.get("combat", {})
     style = combat.get("style", "melee")
-    role = creature_def.get("role", "standard")
+    role = creature_def.get("role", "normal")
     scaling = creature_def.get("scaling", {})
     stats = creature_scaled_stats(level, style=style, role=role, scaling=scaling)
     stats.update(creature_def.get("stats", {}))

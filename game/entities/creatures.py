@@ -73,7 +73,7 @@ def load_creature_defs():
         print(f"[creatures] failed to load definitions: {e}")
 
 class Creature:
-    def __init__(self, render, pos, creature_id, patrol_center=None, terrain=None, bullet_world=None):
+    def __init__(self, render, pos, creature_id, level=None, level_range=None, role=None, patrol_center=None, terrain=None, bullet_world=None):
         self.render = render
         self.terrain = terrain
         self.bullet_world = bullet_world
@@ -87,6 +87,12 @@ class Creature:
             print(f"[creatures] warning: no definition for {creature_id}")
 
         self._rng = random.Random(f"{self.patrol_center.x:.2f},{self.patrol_center.y:.2f}")
+        self._role_override = role
+        
+        # Level initialization
+        self._level_range = level_range
+        self._current_level = self._roll_level(level, level_range)
+        
         self._state = "patrol"
         self._wait_timer = 0.0
         self._patrol_target = self._pick_patrol_target()
@@ -119,8 +125,21 @@ class Creature:
         self._build_target_arrow()
         self._build_debug_ghost()
 
+    def _roll_level(self, level, level_range):
+        if level is not None:
+            return level
+        if level_range:
+            return self._rng.randint(level_range[0], level_range[1])
+        return 1
+
     def _apply_data_stats(self):
-        for k, v in creature_runtime_stats(self.data).items():
+        # We inject the current level into a copy of the data so balance.py can use it
+        stats_def = dict(self.data)
+        stats_def["level"] = self._current_level
+        if self._role_override:
+            stats_def["role"] = self._role_override
+            
+        for k, v in creature_runtime_stats(stats_def).items():
             self.stats.set_base_stat(k, v)
 
     @property
@@ -131,8 +150,14 @@ class Creature:
     def is_hostile(self):
         return self.data.get("ai_type", "hostile") == "hostile"
 
+    @property
+    def role(self):
+        if self._role_override:
+            return self._role_override
+        return self.data.get("role", "normal")
+
     def get_level(self):
-        return int(self.data.get("level", 1))
+        return self._current_level
 
     def _build_visual(self):
         v = self.data.get("visuals", {})
@@ -144,6 +169,7 @@ class Creature:
                 skin_color=tuple(v.get("skin_color", [0.9, 0.8, 0.7, 1.0])),
                 tunic_color=tuple(v.get("tunic_color", [0.5, 0.5, 0.5, 1.0]))
             )
+            self.model.hide_arrow()
         else:
             self.model = CreatureModel(
                 self.root,
@@ -152,7 +178,19 @@ class Creature:
             )
 
         self._label_color = tuple(v.get("label_color", [1, 1, 1, 1]))
-        label_text = self.data.get("name", self.creature_id.capitalize())
+        name = self.data.get("name", self.creature_id.capitalize())
+        
+        # Threat tier visual hooks
+        role = self.role
+        if role == "elite":
+            label_text = f"* {name} *"
+            self._label_color = (1.0, 0.9, 0.4, 1.0)
+        elif role == "boss":
+            label_text = f"!!! {name} !!!"
+            self._label_color = (1.0, 0.2, 0.2, 1.0)
+        else:
+            label_text = name
+
         label_scale = v.get("label_scale", 1.0)
         z_off = 4.3 if m_type == "humanoid" else 2.8
         
@@ -255,7 +293,9 @@ class Creature:
             return
 
         # AI Behavior
-        if self._state == "patrol" and player_dist <= AGGRO_DISTANCE:
+        if self.role == "critter" and player_dist <= AGGRO_DISTANCE:
+            self._state = "flight"
+        elif self._state == "patrol" and player_dist <= AGGRO_DISTANCE:
             if self.is_hostile:
                 self._acquire_target(player, "proximity")
             else:
@@ -594,6 +634,22 @@ class Creature:
     def _respawn(self):
         self.dead = False
         self._despawned = False
+        
+        # Re-roll level if we have a range
+        if self._level_range:
+            self._current_level = self._roll_level(None, self._level_range)
+            self._apply_data_stats()
+            # Update nameplate label if necessary
+            name = self.data.get("name", self.creature_id.capitalize())
+            role = self.role
+            if role == "elite":
+                label_text = f"★ {name} ★"
+            elif role == "boss":
+                label_text = f"💀 {name} 💀"
+            else:
+                label_text = name
+            self._label_np.node().setText(label_text)
+
         self.health = self.max_health
         self.pos = self._ground_point(self.patrol_center.x, self.patrol_center.y)
         self.root.setPos(self.pos)
@@ -680,9 +736,23 @@ class Creature:
         l_data = self.data.get("loot", {})
         loot = []
         
+        role = self.role
+        gold_mult = 1.0
+        extra_mult = 1.0
+        if role == "critter":
+            gold_mult = 0.5
+        elif role == "elite":
+            gold_mult = 3.0
+            extra_mult = 2.0
+        elif role == "boss":
+            gold_mult = 10.0
+            extra_mult = 5.0
+
         # Gold
         g_range = l_data.get("gold", [2, 6])
-        loot.append(("gold", self._rng.randint(g_range[0], g_range[1])))
+        gold_amt = int(self._rng.randint(g_range[0], g_range[1]) * gold_mult)
+        if gold_amt > 0:
+            loot.append(("gold", gold_amt))
         
         # Guaranteed items
         for item_id, qty in l_data.get("guaranteed", []):
@@ -690,7 +760,7 @@ class Creature:
             
         # Extra items (chance)
         for item_id, chance in l_data.get("extra_items", []):
-            if self._rng.random() < chance:
+            if self._rng.random() < (chance * extra_mult):
                 loot.append((item_id, 1))
                 
         return loot

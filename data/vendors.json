@@ -1,0 +1,116 @@
+{
+  "materials_supplier": {
+    "name": "Materials Supplier",
+    "label": "Supplier",
+    "palette": {
+      "body": [0.38, 0.56, 0.72, 1.0],
+      "head": [0.88, 0.73, 0.58, 1.0],
+      "accent": [0.92, 0.78, 0.42, 1.0]
+    },
+    "stock": {
+      "pine_log": 6,
+      "ash_log": 10,
+      "yew_log": 14,
+      "magic_log": 20,
+      "elder_log": 28,
+      "copper_ore": 7,
+      "iron_ore": 12,
+      "coal": 9,
+      "mithril_ore": 18,
+      "adamant_ore": 26,
+      "scrappy_hide": 8,
+      "cured_leather": 14,
+      "thick_hide": 20,
+      "drake_skin": 28,
+      "shadow_leather": 40,
+      "rough_flax": 8,
+      "linen": 14,
+      "silk": 22,
+      "arcane_weave": 32,
+      "voidweave": 48,
+      "feather": 2,
+      "clean_water": 2,
+      "marigold": 6,
+      "belladonna": 8,
+      "bloodmoss": 12,
+      "ironbark_sap": 10,
+      "dragons_tongue": 20,
+      "starbloom": 24,
+      "void_spore": 40
+    }
+  },
+  "smith_supplier": {
+    "name": "Smith Supplier",
+    "label": "Smith",
+    "palette": {
+      "body": [0.52, 0.34, 0.26, 1.0],
+      "head": [0.84, 0.70, 0.56, 1.0],
+      "accent": [0.86, 0.58, 0.22, 1.0]
+    },
+    "stock": {
+      "copper_bar": 18,
+      "iron_bar": 28,
+      "steel_bar": 40,
+      "mithril_bar": 54,
+      "adamant_bar": 72,
+      "copper_sword": 40,
+      "copper_shield": 36,
+      "copper_platebody": 58,
+      "iron_sword": 72,
+      "iron_shield": 66,
+      "steel_greatsword": 110,
+      "mithril_platebody": 140,
+      "adamant_platelegs": 165
+    }
+  },
+  "ranger_supplier": {
+    "name": "Ranger Supplier",
+    "label": "Ranger",
+    "palette": {
+      "body": [0.26, 0.48, 0.26, 1.0],
+      "head": [0.84, 0.74, 0.60, 1.0],
+      "accent": [0.72, 0.88, 0.44, 1.0]
+    },
+    "stock": {
+      "shortbow": 42,
+      "longbow": 58,
+      "crossbow": 72,
+      "wooden_staff": 44,
+      "magic_wand": 38,
+      "arrows": 6,
+      "broad_arrows": 12,
+      "steel_arrows": 22,
+      "bolts": 10,
+      "steel_bolts": 20,
+      "mithril_bolts": 32,
+      "quiver": 24,
+      "ranger_cloak": 42,
+      "archer_gloves": 28
+    }
+  },
+  "alchemist_supplier": {
+    "name": "Alchemist",
+    "label": "Alchemist",
+    "palette": {
+      "body": [0.40, 0.26, 0.58, 1.0],
+      "head": [0.86, 0.74, 0.62, 1.0],
+      "accent": [0.72, 0.54, 0.94, 1.0]
+    },
+    "stock": {
+      "minor_healing_salve": 18,
+      "healing_potion": 34,
+      "greater_healing": 68,
+      "stamina_brew": 20,
+      "iron_skin": 34,
+      "swiftness_draught": 34,
+      "mana_infusion": 44,
+      "venom_coat": 46,
+      "berserker_draught": 52,
+      "arcane_surge": 72,
+      "rust_dye": 14,
+      "charcoal_dye": 18,
+      "forest_dye": 22,
+      "azure_dye": 30
+    }
+  }
+}
