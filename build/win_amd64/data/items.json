@@ -1,0 +1,951 @@
+{
+  "gold": {
+    "name": "Gold",
+    "category": "currency",
+    "subtype": "coin",
+    "stackable": true,
+    "color": [0.96, 0.78, 0.12, 1.0],
+    "value": 1,
+    "icon_spec": {"kind": "coins"}
+  },
+  "pine_log": {
+    "name": "Pine Log",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.48, 0.30, 0.14, 1.0],
+    "value": 5,
+    "icon_spec": {"kind": "logs"}
+  },
+  "ash_log": {
+    "name": "Ash Log",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.56, 0.36, 0.16, 1.0],
+    "value": 9,
+    "icon_spec": {"kind": "logs"}
+  },
+  "yew_log": {
+    "name": "Yew Log",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.44, 0.24, 0.12, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "logs"}
+  },
+  "magic_log": {
+    "name": "Magic Log",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.28, 0.22, 0.46, 1.0],
+    "value": 22,
+    "icon_spec": {"kind": "logs"}
+  },
+  "elder_log": {
+    "name": "Elder Log",
+    "category": "raw_material",
+    "subtype": "wood",
+    "stackable": true,
+    "color": [0.26, 0.18, 0.10, 1.0],
+    "value": 32,
+    "icon_spec": {"kind": "logs"}
+  },
+  "copper_ore": {
+    "name": "Copper Ore",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.72, 0.46, 0.22, 1.0],
+    "value": 7,
+    "icon_spec": {"kind": "ore"}
+  },
+  "iron_ore": {
+    "name": "Iron Ore",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.55, 0.57, 0.62, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "ore"}
+  },
+  "coal": {
+    "name": "Coal",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.18, 0.18, 0.22, 1.0],
+    "value": 9,
+    "icon_spec": {"kind": "ore"}
+  },
+  "mithril_ore": {
+    "name": "Mithril Ore",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.36, 0.72, 0.82, 1.0],
+    "value": 18,
+    "icon_spec": {"kind": "ore"}
+  },
+  "adamant_ore": {
+    "name": "Adamant Ore",
+    "category": "raw_material",
+    "subtype": "ore",
+    "stackable": true,
+    "color": [0.20, 0.72, 0.36, 1.0],
+    "value": 26,
+    "icon_spec": {"kind": "ore"}
+  },
+  "copper_bar": {
+    "name": "Copper Bar",
+    "category": "raw_material",
+    "subtype": "bar",
+    "stackable": true,
+    "color": [0.82, 0.54, 0.28, 1.0],
+    "value": 16,
+    "icon_spec": {"kind": "ore"}
+  },
+  "iron_bar": {
+    "name": "Iron Bar",
+    "category": "raw_material",
+    "subtype": "bar",
+    "stackable": true,
+    "color": [0.68, 0.70, 0.74, 1.0],
+    "value": 24,
+    "icon_spec": {"kind": "ore"}
+  },
+  "steel_bar": {
+    "name": "Steel Bar",
+    "category": "raw_material",
+    "subtype": "bar",
+    "stackable": true,
+    "color": [0.54, 0.58, 0.66, 1.0],
+    "value": 36,
+    "icon_spec": {"kind": "ore"}
+  },
+  "mithril_bar": {
+    "name": "Mithril Bar",
+    "category": "raw_material",
+    "subtype": "bar",
+    "stackable": true,
+    "color": [0.46, 0.84, 0.90, 1.0],
+    "value": 48,
+    "icon_spec": {"kind": "ore"}
+  },
+  "adamant_bar": {
+    "name": "Adamant Bar",
+    "category": "raw_material",
+    "subtype": "bar",
+    "stackable": true,
+    "color": [0.28, 0.82, 0.42, 1.0],
+    "value": 64,
+    "icon_spec": {"kind": "ore"}
+  },
+  "scrappy_hide": {
+    "name": "Scrappy Hide",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.58, 0.38, 0.22, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "hide"}
+  },
+  "cured_leather": {
+    "name": "Cured Leather",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.54, 0.30, 0.18, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "hide"}
+  },
+  "thick_hide": {
+    "name": "Thick Hide",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.46, 0.26, 0.14, 1.0],
+    "value": 20,
+    "icon_spec": {"kind": "hide"}
+  },
+  "drake_skin": {
+    "name": "Drake Skin",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.34, 0.50, 0.26, 1.0],
+    "value": 28,
+    "icon_spec": {"kind": "hide"}
+  },
+  "shadow_leather": {
+    "name": "Shadow Leather",
+    "category": "raw_material",
+    "subtype": "hide",
+    "stackable": true,
+    "color": [0.20, 0.18, 0.28, 1.0],
+    "value": 40,
+    "icon_spec": {"kind": "hide"}
+  },
+  "rough_flax": {
+    "name": "Rough Flax",
+    "category": "raw_material",
+    "subtype": "cloth",
+    "stackable": true,
+    "color": [0.86, 0.78, 0.58, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "hide"}
+  },
+  "linen": {
+    "name": "Linen",
+    "category": "raw_material",
+    "subtype": "cloth",
+    "stackable": true,
+    "color": [0.88, 0.84, 0.72, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "hide"}
+  },
+  "silk": {
+    "name": "Silk",
+    "category": "raw_material",
+    "subtype": "cloth",
+    "stackable": true,
+    "color": [0.90, 0.90, 0.94, 1.0],
+    "value": 22,
+    "icon_spec": {"kind": "hide"}
+  },
+  "arcane_weave": {
+    "name": "Arcane Weave",
+    "category": "raw_material",
+    "subtype": "cloth",
+    "stackable": true,
+    "color": [0.54, 0.44, 0.86, 1.0],
+    "value": 32,
+    "icon_spec": {"kind": "hide"}
+  },
+  "voidweave": {
+    "name": "Voidweave",
+    "category": "raw_material",
+    "subtype": "cloth",
+    "stackable": true,
+    "color": [0.18, 0.14, 0.28, 1.0],
+    "value": 48,
+    "icon_spec": {"kind": "hide"}
+  },
+  "leather_string": {
+    "name": "Leather String",
+    "category": "raw_material",
+    "subtype": "component",
+    "stackable": true,
+    "color": [0.74, 0.60, 0.40, 1.0],
+    "value": 6,
+    "icon_spec": {"kind": "hide"}
+  },
+  "feather": {
+    "name": "Feather",
+    "category": "raw_material",
+    "subtype": "component",
+    "stackable": true,
+    "color": [0.92, 0.92, 0.92, 1.0],
+    "value": 2,
+    "icon_spec": {"kind": "hide"}
+  },
+  "fish": {
+    "name": "Raw Fish",
+    "category": "raw_material",
+    "subtype": "fish",
+    "stackable": true,
+    "color": [0.24, 0.56, 0.84, 1.0],
+    "value": 6,
+    "icon_spec": {"kind": "fish"}
+  },
+  "raw_meat": {
+    "name": "Raw Meat",
+    "category": "raw_material",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.80, 0.22, 0.22, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "meat"}
+  },
+  "cooked_fish": {
+    "name": "Cooked Fish",
+    "category": "consumable",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.95, 0.70, 0.34, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "fish"}
+  },
+  "cooked_meat": {
+    "name": "Cooked Meat",
+    "category": "consumable",
+    "subtype": "food",
+    "stackable": true,
+    "color": [0.72, 0.34, 0.18, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "meat"}
+  },
+  "clean_water": {
+    "name": "Clean Water",
+    "category": "raw_material",
+    "subtype": "alchemy",
+    "stackable": true,
+    "color": [0.38, 0.72, 0.96, 1.0],
+    "value": 2,
+    "icon_spec": {"kind": "fish"}
+  },
+  "marigold": {
+    "name": "Marigold",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [1.0, 0.60, 0.0, 1.0],
+    "value": 6,
+    "icon_spec": {"kind": "herb"}
+  },
+  "belladonna": {
+    "name": "Belladonna",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.40, 0.10, 0.60, 1.0],
+    "value": 8,
+    "icon_spec": {"kind": "herb"}
+  },
+  "bloodmoss": {
+    "name": "Bloodmoss",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.58, 0.10, 0.14, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "herb"}
+  },
+  "ironbark_sap": {
+    "name": "Ironbark Sap",
+    "category": "raw_material",
+    "subtype": "alchemy",
+    "stackable": true,
+    "color": [0.76, 0.52, 0.18, 1.0],
+    "value": 10,
+    "icon_spec": {"kind": "herb"}
+  },
+  "dragons_tongue": {
+    "name": "Dragon's Tongue",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.96, 0.28, 0.18, 1.0],
+    "value": 20,
+    "icon_spec": {"kind": "herb"}
+  },
+  "starbloom": {
+    "name": "Starbloom",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.62, 0.84, 1.0, 1.0],
+    "value": 24,
+    "icon_spec": {"kind": "herb"}
+  },
+  "void_spore": {
+    "name": "Void Spore",
+    "category": "raw_material",
+    "subtype": "herb",
+    "stackable": true,
+    "color": [0.30, 0.20, 0.46, 1.0],
+    "value": 40,
+    "icon_spec": {"kind": "herb"}
+  },
+  "minor_healing_salve": {
+    "name": "Minor Healing Salve",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.76, 0.22, 0.28, 1.0],
+    "value": 18,
+    "icon_spec": {"kind": "herb"}
+  },
+  "healing_potion": {
+    "name": "Healing Potion",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.88, 0.24, 0.26, 1.0],
+    "value": 34,
+    "icon_spec": {"kind": "herb"}
+  },
+  "greater_healing": {
+    "name": "Greater Healing",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.96, 0.32, 0.18, 1.0],
+    "value": 68,
+    "icon_spec": {"kind": "herb"}
+  },
+  "stamina_brew": {
+    "name": "Stamina Brew",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.42, 0.84, 0.58, 1.0],
+    "value": 20,
+    "icon_spec": {"kind": "herb"}
+  },
+  "iron_skin": {
+    "name": "Iron Skin",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.58, 0.60, 0.64, 1.0],
+    "value": 34,
+    "icon_spec": {"kind": "herb"}
+  },
+  "swiftness_draught": {
+    "name": "Swiftness Draught",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.84, 0.82, 0.32, 1.0],
+    "value": 34,
+    "icon_spec": {"kind": "herb"}
+  },
+  "mana_infusion": {
+    "name": "Mana Infusion",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.32, 0.54, 0.96, 1.0],
+    "value": 44,
+    "icon_spec": {"kind": "herb"}
+  },
+  "venom_coat": {
+    "name": "Venom Coat",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.20, 0.60, 0.24, 1.0],
+    "value": 46,
+    "icon_spec": {"kind": "herb"}
+  },
+  "berserker_draught": {
+    "name": "Berserker Draught",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.72, 0.18, 0.18, 1.0],
+    "value": 52,
+    "icon_spec": {"kind": "herb"}
+  },
+  "arcane_surge": {
+    "name": "Arcane Surge",
+    "category": "consumable",
+    "subtype": "potion",
+    "stackable": true,
+    "color": [0.52, 0.26, 0.86, 1.0],
+    "value": 72,
+    "icon_spec": {"kind": "herb"}
+  },
+  "rust_dye": {
+    "name": "Rust Dye",
+    "category": "enhancement",
+    "subtype": "dye",
+    "stackable": true,
+    "color": [0.62, 0.24, 0.12, 1.0],
+    "value": 14,
+    "icon_spec": {"kind": "herb"}
+  },
+  "charcoal_dye": {
+    "name": "Charcoal Dye",
+    "category": "enhancement",
+    "subtype": "dye",
+    "stackable": true,
+    "color": [0.18, 0.18, 0.18, 1.0],
+    "value": 18,
+    "icon_spec": {"kind": "herb"}
+  },
+  "forest_dye": {
+    "name": "Forest Dye",
+    "category": "enhancement",
+    "subtype": "dye",
+    "stackable": true,
+    "color": [0.16, 0.44, 0.20, 1.0],
+    "value": 22,
+    "icon_spec": {"kind": "herb"}
+  },
+  "azure_dye": {
+    "name": "Azure Dye",
+    "category": "enhancement",
+    "subtype": "dye",
+    "stackable": true,
+    "color": [0.18, 0.52, 0.92, 1.0],
+    "value": 30,
+    "icon_spec": {"kind": "herb"}
+  },
+  "arrows": {
+    "name": "Arrows (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.76, 0.70, 0.62, 1.0],
+    "value": 6,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "broad_arrows": {
+    "name": "Broad Arrows (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.68, 0.74, 0.78, 1.0],
+    "value": 12,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "steel_arrows": {
+    "name": "Steel Arrows (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.56, 0.62, 0.72, 1.0],
+    "value": 22,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "bolts": {
+    "name": "Bolts (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.60, 0.66, 0.72, 1.0],
+    "value": 10,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "steel_bolts": {
+    "name": "Steel Bolts (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.52, 0.58, 0.66, 1.0],
+    "value": 20,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "mithril_bolts": {
+    "name": "Mithril Bolts (20)",
+    "category": "consumable",
+    "subtype": "ammo",
+    "stackable": true,
+    "color": [0.36, 0.80, 0.90, 1.0],
+    "value": 32,
+    "icon_spec": {"kind": "dagger"}
+  },
+  "copper_sword": {
+    "name": "Copper Sword",
+    "category": "equipment",
+    "subtype": "sword",
+    "stackable": false,
+    "color": [0.78, 0.52, 0.28, 1.0],
+    "value": 40,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 6.0, "parry_chance": 0.02}
+  },
+  "iron_sword": {
+    "name": "Iron Sword",
+    "category": "equipment",
+    "subtype": "sword",
+    "stackable": false,
+    "color": [0.70, 0.72, 0.76, 1.0],
+    "value": 72,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 9.0, "parry_chance": 0.03}
+  },
+  "steel_greatsword": {
+    "name": "Steel Greatsword",
+    "category": "equipment",
+    "subtype": "2h_sword",
+    "stackable": false,
+    "color": [0.56, 0.62, 0.70, 1.0],
+    "value": 110,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 14.0, "parry_chance": 0.05}
+  },
+  "iron_dagger": {
+    "name": "Iron Dagger",
+    "category": "equipment",
+    "subtype": "dagger",
+    "stackable": false,
+    "color": [0.68, 0.70, 0.74, 1.0],
+    "value": 28,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "dagger"},
+    "stats": {"melee_damage": 5.0, "crit_chance": 0.10, "evasion": 0.02}
+  },
+  "iron_mace": {
+    "name": "Iron Mace",
+    "category": "equipment",
+    "subtype": "mace",
+    "stackable": false,
+    "color": [0.54, 0.56, 0.62, 1.0],
+    "value": 40,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "mace"},
+    "stats": {"melee_damage": 8.0, "crit_mult": 0.25}
+  },
+  "hand_axe": {
+    "name": "Hand Axe",
+    "category": "equipment",
+    "subtype": "axe",
+    "stackable": false,
+    "color": [0.60, 0.60, 0.60, 1.0],
+    "value": 34,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "axe"},
+    "stats": {"melee_damage": 7.0, "crit_chance": 0.05}
+  },
+  "battle_axe": {
+    "name": "Battle Axe",
+    "category": "equipment",
+    "subtype": "battle_axe",
+    "stackable": false,
+    "color": [0.46, 0.46, 0.48, 1.0],
+    "value": 62,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "battle_axe"},
+    "stats": {"melee_damage": 12.0, "crit_chance": 0.08}
+  },
+  "greatsword": {
+    "name": "Greatsword",
+    "category": "equipment",
+    "subtype": "2h_sword",
+    "stackable": false,
+    "color": [0.70, 0.70, 0.72, 1.0],
+    "value": 50,
+    "equipment_slot": "weapon",
+    "icon_spec": {"kind": "sword"},
+    "stats": {"melee_damage": 12.0, "parry_chance": 0.04}
+  },
+  "copper_shield": {
+    "name": "Copper Shield",
+    "category": "equipment",
+    "subtype": "shield",
+    "stackable": false,
+    "color": [0.72, 0.44, 0.20, 1.0],
+    "value": 36,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "shield"},
+    "stats": {"armor": 5.0, "block_chance": 0.06}
+  },
+  "iron_shield": {
+    "name": "Iron Shield",
+    "category": "equipment",
+    "subtype": "shield",
+    "stackable": false,
+    "color": [0.64, 0.66, 0.70, 1.0],
+    "value": 66,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "shield"},
+    "stats": {"armor": 8.0, "block_chance": 0.10}
+  },
+  "spellbook": {
+    "name": "Spellbook",
+    "category": "equipment",
+    "subtype": "book",
+    "stackable": false,
+    "color": [0.20, 0.30, 0.60, 1.0],
+    "value": 40,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "book"},
+    "stats": {"magic_damage": 3.0, "max_health": 8.0}
+  },
+  "shortbow": {
+    "name": "Shortbow",
+    "category": "equipment",
+    "subtype": "bow",
+    "stackable": false,
+    "color": [0.55, 0.35, 0.15, 1.0],
+    "value": 42,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "bow"},
+    "stats": {"ranged_damage": 6.0, "crit_chance": 0.04}
+  },
+  "longbow": {
+    "name": "Longbow",
+    "category": "equipment",
+    "subtype": "bow",
+    "stackable": false,
+    "color": [0.48, 0.28, 0.12, 1.0],
+    "value": 58,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "bow"},
+    "stats": {"ranged_damage": 8.0, "crit_chance": 0.05}
+  },
+  "crossbow": {
+    "name": "Crossbow",
+    "category": "equipment",
+    "subtype": "crossbow",
+    "stackable": false,
+    "color": [0.38, 0.24, 0.14, 1.0],
+    "value": 72,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "crossbow"},
+    "stats": {"ranged_damage": 10.0, "crit_chance": 0.06, "crit_mult": 0.30}
+  },
+  "light_crossbow": {
+    "name": "Light Crossbow",
+    "category": "equipment",
+    "subtype": "crossbow",
+    "stackable": false,
+    "color": [0.40, 0.25, 0.15, 1.0],
+    "value": 35,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "crossbow"},
+    "stats": {"ranged_damage": 8.0, "crit_chance": 0.06, "crit_mult": 0.35}
+  },
+  "wooden_staff": {
+    "name": "Wooden Staff",
+    "category": "equipment",
+    "subtype": "staff",
+    "stackable": false,
+    "color": [0.60, 0.40, 0.20, 1.0],
+    "accent_color": [0.20, 0.60, 0.90, 1.0],
+    "value": 44,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "staff"},
+    "stats": {"magic_damage": 7.0, "parry_chance": 0.02}
+  },
+  "magic_wand": {
+    "name": "Magic Wand",
+    "category": "equipment",
+    "subtype": "wand",
+    "stackable": false,
+    "color": [0.80, 0.70, 0.50, 1.0],
+    "accent_color": [0.90, 0.20, 0.20, 1.0],
+    "value": 38,
+    "equipment_slot": "ranged",
+    "icon_spec": {"kind": "wand"},
+    "stats": {"magic_damage": 6.0, "crit_chance": 0.05}
+  },
+  "cloth_hat": {
+    "name": "Cloth Hat",
+    "category": "equipment",
+    "subtype": "hood",
+    "stackable": false,
+    "color": [0.52, 0.22, 0.20, 1.0],
+    "value": 18,
+    "equipment_slot": "head",
+    "icon_spec": {"kind": "hood"},
+    "stats": {"armor": 2.0, "magic_damage": 1.0}
+  },
+  "robe": {
+    "name": "Robe",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.64, 0.24, 0.12, 1.0],
+    "value": 28,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 4.0, "magic_damage": 1.0}
+  },
+  "cloth_leggings": {
+    "name": "Cloth Leggings",
+    "category": "equipment",
+    "subtype": "legs",
+    "stackable": false,
+    "color": [0.40, 0.44, 0.52, 1.0],
+    "value": 22,
+    "equipment_slot": "legs",
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 3.0, "movement_speed": 0.3}
+  },
+  "cloth_gloves": {
+    "name": "Cloth Gloves",
+    "category": "equipment",
+    "subtype": "hands",
+    "stackable": false,
+    "color": [0.48, 0.20, 0.18, 1.0],
+    "value": 16,
+    "equipment_slot": "hands",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 1.0, "magic_damage": 1.0}
+  },
+  "cloth_boots": {
+    "name": "Cloth Boots",
+    "category": "equipment",
+    "subtype": "feet",
+    "stackable": false,
+    "color": [0.30, 0.30, 0.40, 1.0],
+    "value": 16,
+    "equipment_slot": "feet",
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 1.0, "movement_speed": 0.2}
+  },
+  "leather_hood": {
+    "name": "Leather Hood",
+    "category": "equipment",
+    "subtype": "hood",
+    "stackable": false,
+    "color": [0.44, 0.28, 0.16, 1.0],
+    "value": 22,
+    "equipment_slot": "head",
+    "icon_spec": {"kind": "hood"},
+    "stats": {"armor": 3.0, "evasion": 0.02}
+  },
+  "leather_chest": {
+    "name": "Leather Chest",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.48, 0.30, 0.18, 1.0],
+    "value": 34,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 5.0, "evasion": 0.02}
+  },
+  "leather_legs": {
+    "name": "Leather Legs",
+    "category": "equipment",
+    "subtype": "legs",
+    "stackable": false,
+    "color": [0.42, 0.26, 0.14, 1.0],
+    "value": 28,
+    "equipment_slot": "legs",
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 4.0, "movement_speed": 0.3}
+  },
+  "leather_gloves": {
+    "name": "Leather Gloves",
+    "category": "equipment",
+    "subtype": "hands",
+    "stackable": false,
+    "color": [0.40, 0.24, 0.14, 1.0],
+    "value": 18,
+    "equipment_slot": "hands",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 2.0, "ranged_damage": 1.0}
+  },
+  "leather_boots": {
+    "name": "Leather Boots",
+    "category": "equipment",
+    "subtype": "feet",
+    "stackable": false,
+    "color": [0.34, 0.20, 0.12, 1.0],
+    "value": 18,
+    "equipment_slot": "feet",
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 2.0, "movement_speed": 0.4}
+  },
+  "quiver": {
+    "name": "Quiver",
+    "category": "equipment",
+    "subtype": "shield",
+    "stackable": false,
+    "color": [0.54, 0.34, 0.16, 1.0],
+    "value": 24,
+    "equipment_slot": "offhand",
+    "icon_spec": {"kind": "shield"},
+    "stats": {"ranged_damage": 2.0, "movement_speed": 0.2}
+  },
+  "ranger_cloak": {
+    "name": "Ranger Cloak",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.20, 0.38, 0.20, 1.0],
+    "value": 42,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 4.0, "evasion": 0.04}
+  },
+  "archer_gloves": {
+    "name": "Archer Gloves",
+    "category": "equipment",
+    "subtype": "hands",
+    "stackable": false,
+    "color": [0.34, 0.26, 0.14, 1.0],
+    "value": 28,
+    "equipment_slot": "hands",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 2.0, "ranged_damage": 2.0}
+  },
+  "copper_platebody": {
+    "name": "Copper Platebody",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.72, 0.46, 0.22, 1.0],
+    "value": 58,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 8.0}
+  },
+  "mithril_platebody": {
+    "name": "Mithril Platebody",
+    "category": "equipment",
+    "subtype": "armor",
+    "stackable": false,
+    "color": [0.34, 0.78, 0.88, 1.0],
+    "value": 140,
+    "equipment_slot": "chest",
+    "icon_spec": {"kind": "armor"},
+    "stats": {"armor": 16.0}
+  },
+  "adamant_platelegs": {
+    "name": "Adamant Platelegs",
+    "category": "equipment",
+    "subtype": "legs",
+    "stackable": false,
+    "color": [0.20, 0.72, 0.36, 1.0],
+    "value": 165,
+    "equipment_slot": "legs",
+    "icon_spec": {"kind": "legs"},
+    "stats": {"armor": 15.0}
+  },
+  "copper_ring": {
+    "name": "Copper Ring",
+    "category": "equipment",
+    "subtype": "ring",
+    "stackable": false,
+    "color": [0.78, 0.52, 0.28, 1.0],
+    "value": 24,
+    "equipment_slot": "ring",
+    "icon_spec": {"kind": "coins"},
+    "stats": {"armor": 1.0}
+  },
+  "iron_ring": {
+    "name": "Iron Ring",
+    "category": "equipment",
+    "subtype": "ring",
+    "stackable": false,
+    "color": [0.66, 0.68, 0.74, 1.0],
+    "value": 36,
+    "equipment_slot": "ring",
+    "icon_spec": {"kind": "coins"},
+    "stats": {"armor": 2.0}
+  },
+  "copper_necklace": {
+    "name": "Copper Necklace",
+    "category": "equipment",
+    "subtype": "necklace",
+    "stackable": false,
+    "color": [0.78, 0.52, 0.28, 1.0],
+    "value": 28,
+    "equipment_slot": "necklace",
+    "icon_spec": {"kind": "coins"},
+    "stats": {"health_regen": 0.2}
+  },
+  "iron_necklace": {
+    "name": "Iron Necklace",
+    "category": "equipment",
+    "subtype": "necklace",
+    "stackable": false,
+    "color": [0.66, 0.68, 0.74, 1.0],
+    "value": 42,
+    "equipment_slot": "necklace",
+    "icon_spec": {"kind": "coins"},
+    "stats": {"max_health": 6.0}
+  }
+}

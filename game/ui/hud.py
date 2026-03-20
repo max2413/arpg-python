@@ -9,10 +9,13 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText, Direct
 from direct.gui import DirectGuiGlobals as DGG
 from panda3d.core import TextNode
 
+from game.systems.inventory import get_equipment_slot, move_item
 from game.systems.skills import SKILLS
 from game.ui.widgets import (
+    CONTEXT_MENU_MANAGER,
     DraggableWindow,
     ItemSlotCollection,
+    QUANTITY_PROMPT_MANAGER,
     TOOLTIP_MANAGER,
     build_equipment_slot_defs,
     build_grid_slot_defs,
@@ -566,6 +569,8 @@ class HUD:
             slot_defs,
             SLOT_SIZE,
             on_change=self._on_inventory_changed,
+            context_name="inventory",
+            action_builder=self._build_inventory_actions,
         )
         self._inv_window.hide()
 
@@ -590,6 +595,8 @@ class HUD:
             slot_defs,
             SLOT_SIZE,
             on_change=self._on_inventory_changed,
+            context_name="equipment",
+            action_builder=self._build_equipment_actions,
         )
 
         # Right side: Stats
@@ -779,9 +786,13 @@ class HUD:
         self._set_combat_debug_visible(not self._combat_debug_visible)
 
     def _close_inventory(self):
+        CONTEXT_MENU_MANAGER.hide()
+        QUANTITY_PROMPT_MANAGER.hide()
         self._set_inventory_visible(False)
 
     def _close_equipment(self):
+        CONTEXT_MENU_MANAGER.hide()
+        QUANTITY_PROMPT_MANAGER.hide()
         self._set_equipment_visible(False)
 
     def _close_skills(self):
@@ -854,6 +865,104 @@ class HUD:
     def _open_skill_recipes(self, skill):
         if hasattr(self.player, "_app") and self.player._app and hasattr(self.player._app, "crafting_ui"):
             self.player._app.crafting_ui.open_skill(skill)
+
+    def _active_app(self):
+        return getattr(self.player, "_app", None) if self.player is not None else None
+
+    def _open_bank_ui(self):
+        app = self._active_app()
+        if app is None:
+            return None
+        for interactable in app._level_interactables():
+            if getattr(interactable, "ui_open", False) and hasattr(interactable, "bank_inv"):
+                return interactable
+        return None
+
+    def _open_vendor_ui(self):
+        app = self._active_app()
+        if app is None:
+            return None
+        for interactable in app._level_interactables():
+            if getattr(interactable, "ui_open", False) and hasattr(interactable, "stock"):
+                return interactable
+        return None
+
+    def _equip_from_inventory(self, slot_key):
+        stack = self.inventory.get_slot(slot_key)
+        if stack is None:
+            return False
+        slot_name = get_equipment_slot(stack["id"])
+        if slot_name is None:
+            return False
+        equipped = self.inventory.equipment.get_slot(slot_name)
+        if equipped is not None:
+            free_slot = self.inventory.find_first_free_slot()
+            if free_slot is None:
+                self.show_prompt("Inventory full!")
+                return False
+            if not move_item(self.inventory.equipment, slot_name, self.inventory, free_slot):
+                return False
+        moved = move_item(self.inventory, slot_key, self.inventory.equipment, slot_name)
+        if moved:
+            self.refresh_inventory()
+            self.show_prompt("Equipped")
+        return moved
+
+    def _unequip_to_inventory(self, slot_key):
+        free_slot = self.inventory.find_first_free_slot()
+        if free_slot is None:
+            self.show_prompt("Inventory full!")
+            return False
+        moved = move_item(self.inventory.equipment, slot_key, self.inventory, free_slot)
+        if moved:
+            self.refresh_inventory()
+            self.show_prompt("Unequipped")
+        return moved
+
+    def _build_inventory_actions(self, _collection, slot_key, stack):
+        actions = []
+        if get_equipment_slot(stack["id"]) is not None:
+            actions.append({"label": "Equip", "callback": lambda key=slot_key: self._equip_from_inventory(key)})
+
+        bank = self._open_bank_ui()
+        if bank is not None:
+            max_qty = stack["quantity"]
+            actions.extend(
+                [
+                    {"label": "Deposit 1", "callback": lambda key=slot_key: bank.deposit_from_inventory(key, 1)},
+                    {"label": "Deposit 10", "callback": lambda key=slot_key, qty=max_qty: bank.deposit_from_inventory(key, min(10, qty))},
+                    {
+                        "label": "Deposit X",
+                        "callback": lambda key=slot_key, qty=max_qty: QUANTITY_PROMPT_MANAGER.ask(
+                            f"Deposit {stack['id']}", qty, lambda amount: bank.deposit_from_inventory(key, amount), min(10, qty)
+                        ),
+                    },
+                ]
+            )
+
+        vendor = self._open_vendor_ui()
+        if vendor is not None and stack["id"] != "gold":
+            max_qty = stack["quantity"]
+            actions.extend(
+                [
+                    {"label": "Sell 1", "callback": lambda key=slot_key: vendor.sell_from_inventory(key, 1)},
+                    {"label": "Sell 10", "callback": lambda key=slot_key, qty=max_qty: vendor.sell_from_inventory(key, min(10, qty))},
+                    {
+                        "label": "Sell X",
+                        "callback": lambda key=slot_key, qty=max_qty: QUANTITY_PROMPT_MANAGER.ask(
+                            f"Sell {stack['id']}", qty, lambda amount: vendor.sell_from_inventory(key, amount), min(10, qty)
+                        ),
+                    },
+                ]
+            )
+        return actions
+
+    def _build_equipment_actions(self, _collection, slot_key, stack):
+        actions = [{"label": "Unequip", "callback": lambda key=slot_key: self._unequip_to_inventory(key)}]
+        vendor = self._open_vendor_ui()
+        if vendor is not None and stack["id"] != "gold":
+            actions.append({"label": "Sell 1", "callback": lambda key=slot_key: vendor.sell_from_equipment(key, 1)})
+        return actions
 
     def _menu_tooltip(self, button_text):
         tips = {

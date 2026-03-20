@@ -7,9 +7,20 @@ from panda3d.core import TextNode
 from direct.gui.DirectGui import OnscreenText
 
 from game.entities.npc import InteractableNpc, attach_billboard_label, build_humanoid_npc
-from game.systems.inventory import Inventory, sanitize_inventory_payload
+from game.systems.inventory import (
+    Inventory,
+    available_stack_quantity,
+    sanitize_inventory_payload,
+    transfer_item_quantity,
+)
 from game.systems.paths import data_path, save_path
-from game.ui.widgets import DraggableWindow, ItemSlotCollection, build_grid_slot_defs
+from game.ui.widgets import (
+    CONTEXT_MENU_MANAGER,
+    QUANTITY_PROMPT_MANAGER,
+    DraggableWindow,
+    ItemSlotCollection,
+    build_grid_slot_defs,
+)
 from game.world.structures import build_structure_shell
 
 BANK_PROXIMITY = 7.0
@@ -75,6 +86,8 @@ class Bank(InteractableNpc):
 
     def close_ui(self):
         self.ui_open = False
+        CONTEXT_MENU_MANAGER.hide()
+        QUANTITY_PROMPT_MANAGER.hide()
         if self._window:
             self._window.destroy()
             self._window = None
@@ -101,6 +114,8 @@ class Bank(InteractableNpc):
             build_grid_slot_defs(BANK_COLS, BANK_ROWS, SLOT_SIZE, SLOT_GAP, -0.82, 0.46),
             SLOT_SIZE,
             on_change=self._on_inventory_changed,
+            context_name="bank",
+            action_builder=self._build_bank_slot_actions,
         )
         self._player_slots = ItemSlotCollection(
             body,
@@ -108,6 +123,8 @@ class Bank(InteractableNpc):
             build_grid_slot_defs(4, 7, SLOT_SIZE, SLOT_GAP, 0.32, 0.46),
             SLOT_SIZE,
             on_change=self._on_inventory_changed,
+            context_name="inventory",
+            action_builder=self._build_player_slot_actions,
         )
         self._bank_slots.transfer_targets = [self._player_slots]
         self._player_slots.transfer_targets = [self._bank_slots]
@@ -123,6 +140,58 @@ class Bank(InteractableNpc):
         os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
         with open(SAVE_PATH, "w") as handle:
             json.dump(self.bank_inv.to_dict(), handle)
+
+    def deposit_from_inventory(self, slot_key, quantity):
+        moved = transfer_item_quantity(self.player_inv, slot_key, self.bank_inv, quantity=quantity)
+        if moved <= 0:
+            return False
+        self._on_inventory_changed()
+        return True
+
+    def withdraw_to_inventory(self, slot_key, quantity):
+        moved = transfer_item_quantity(self.bank_inv, slot_key, self.player_inv, quantity=quantity)
+        if moved <= 0:
+            return False
+        self._on_inventory_changed()
+        return True
+
+    def _build_bank_slot_actions(self, _collection, slot_key, stack):
+        max_qty = available_stack_quantity(self.bank_inv, slot_key)
+        return [
+            {"label": "Withdraw 1", "callback": lambda key=slot_key: self.withdraw_to_inventory(key, 1)},
+            {
+                "label": "Withdraw 10",
+                "callback": lambda key=slot_key, qty=max_qty: self.withdraw_to_inventory(key, min(10, qty)),
+            },
+            {
+                "label": "Withdraw X",
+                "callback": lambda key=slot_key, qty=max_qty, item_id=stack["id"]: QUANTITY_PROMPT_MANAGER.ask(
+                    f"Withdraw {item_id}",
+                    qty,
+                    lambda amount: self.withdraw_to_inventory(key, amount),
+                    min(10, qty),
+                ),
+            },
+        ]
+
+    def _build_player_slot_actions(self, _collection, slot_key, stack):
+        max_qty = available_stack_quantity(self.player_inv, slot_key)
+        return [
+            {"label": "Deposit 1", "callback": lambda key=slot_key: self.deposit_from_inventory(key, 1)},
+            {
+                "label": "Deposit 10",
+                "callback": lambda key=slot_key, qty=max_qty: self.deposit_from_inventory(key, min(10, qty)),
+            },
+            {
+                "label": "Deposit X",
+                "callback": lambda key=slot_key, qty=max_qty, item_id=stack["id"]: QUANTITY_PROMPT_MANAGER.ask(
+                    f"Deposit {item_id}",
+                    qty,
+                    lambda amount: self.deposit_from_inventory(key, amount),
+                    min(10, qty),
+                ),
+            },
+        ]
 
     def _load(self):
         if os.path.exists(SAVE_PATH):

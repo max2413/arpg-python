@@ -42,6 +42,15 @@ class DevMenu(DraggableWindow):
         self._spawn_creature_btns = {}
         self._spawn_role_btns = {}
         self._level_entry = None
+        self._item_category_filter = "All"
+        self._item_subtype_filter = "All"
+        self._item_search = ""
+        self._item_scroll = None
+        self._item_canvas = None
+        self._item_widgets = []
+        self._item_search_entry = None
+        self._item_category_menu = None
+        self._item_subtype_menu = None
 
         super().__init__(
             "Developer Menu (F1)",
@@ -210,26 +219,159 @@ class DevMenu(DraggableWindow):
         self._update_spawn_ui()
 
     def _build_items_tab(self, parent):
-        scroll = DirectScrolledFrame(
+        categories = ["All"] + sorted({item_def.get("category", "unknown") for item_def in ITEMS.values()})
+        subtypes = ["All"] + sorted({item_def.get("subtype", "unknown") for item_def in ITEMS.values()})
+
+        OnscreenText(
+            text="Category",
             parent=parent,
-            canvasSize=(-0.72, 0.72, -1.95, 0.0),
-            frameSize=(-0.74, 0.74, self.CONTENT_BOTTOM + 0.04, self.CONTENT_TOP - 0.04),
+            pos=(-0.72, self.CONTENT_TOP - 0.08),
+            scale=0.03,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+        self._item_category_menu = DirectOptionMenu(
+            parent=parent,
+            items=categories,
+            initialitem=0,
+            scale=0.04,
+            pos=(-0.56, 0, self.CONTENT_TOP - 0.10),
+            command=self._set_item_category_filter,
+            highlightColor=(0.30, 0.28, 0.18, 1),
+            frameColor=(0.18, 0.18, 0.20, 1),
+            text_fg=(1, 1, 1, 1),
+            popupMarker_pos=(5.2, 0, 0.15),
+        )
+
+        OnscreenText(
+            text="Subtype",
+            parent=parent,
+            pos=(-0.10, self.CONTENT_TOP - 0.08),
+            scale=0.03,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+        self._item_subtype_menu = DirectOptionMenu(
+            parent=parent,
+            items=subtypes,
+            initialitem=0,
+            scale=0.04,
+            pos=(0.02, 0, self.CONTENT_TOP - 0.10),
+            command=self._set_item_subtype_filter,
+            highlightColor=(0.30, 0.28, 0.18, 1),
+            frameColor=(0.18, 0.18, 0.20, 1),
+            text_fg=(1, 1, 1, 1),
+            popupMarker_pos=(5.2, 0, 0.15),
+        )
+
+        OnscreenText(
+            text="Search",
+            parent=parent,
+            pos=(0.44, self.CONTENT_TOP - 0.08),
+            scale=0.03,
+            fg=(0.85, 0.85, 0.88, 1),
+            align=TextNode.ALeft,
+        )
+        self._item_search_entry = DirectEntry(
+            parent=parent,
+            scale=0.038,
+            pos=(0.53, 0, self.CONTENT_TOP - 0.11),
+            initialText="",
+            numLines=1,
+            focus=0,
+            frameColor=(0.15, 0.15, 0.15, 1),
+            text_fg=(1, 1, 1, 1),
+            width=8,
+            command=self._set_item_search,
+        )
+        create_text_button(
+            parent,
+            "Apply",
+            (0.67, 0, self.CONTENT_TOP - 0.10),
+            self._apply_item_search,
+            scale=0.034,
+            min_half_width=1.0,
+            max_half_width=None,
+            padding=0.4,
+            frame_color=(0.24, 0.32, 0.24, 1),
+        )
+        create_text_button(
+            parent,
+            "Reset",
+            (0.67, 0, self.CONTENT_TOP - 0.18),
+            self._reset_item_filters,
+            scale=0.034,
+            min_half_width=1.0,
+            max_half_width=None,
+            padding=0.4,
+            frame_color=(0.28, 0.22, 0.22, 1),
+        )
+
+        self._item_scroll = DirectScrolledFrame(
+            parent=parent,
+            canvasSize=(-0.72, 0.72, -1.0, 0.0),
+            frameSize=(-0.74, 0.74, self.CONTENT_BOTTOM + 0.04, self.CONTENT_TOP - 0.24),
             frameColor=(0.04, 0.04, 0.04, 0.65),
             scrollBarWidth=0.04,
-            pos=(0, 0, 0),
+            pos=(0, 0, -0.08),
         )
-        canvas = scroll.getCanvas()
-        sorted_items = sorted(ITEMS.keys())
+        self._item_canvas = self._item_scroll.getCanvas()
+        self._refresh_items_tab()
+
+    def _clear_items_tab(self):
+        for widget in self._item_widgets:
+            widget.destroy()
+        self._item_widgets = []
+
+    def _filtered_item_entries(self):
+        search = self._item_search.strip().lower()
+        entries = []
+        for item_id, item_def in ITEMS.items():
+            category = item_def.get("category", "unknown")
+            subtype = item_def.get("subtype", "unknown")
+            if self._item_category_filter != "All" and category != self._item_category_filter:
+                continue
+            if self._item_subtype_filter != "All" and subtype != self._item_subtype_filter:
+                continue
+            if search:
+                haystack = " ".join(
+                    [
+                        item_id,
+                        item_def.get("name", ""),
+                        category,
+                        subtype,
+                        item_def.get("equipment_slot", ""),
+                    ]
+                ).lower()
+                if search not in haystack:
+                    continue
+            entries.append((item_id, item_def))
+        return sorted(
+            entries,
+            key=lambda pair: (
+                pair[1].get("category", ""),
+                pair[1].get("subtype", ""),
+                pair[1].get("name", pair[0]),
+            ),
+        )
+
+    def _refresh_items_tab(self):
+        if self._item_canvas is None or self._item_scroll is None:
+            return
+        self._clear_items_tab()
+
+        entries = self._filtered_item_entries()
         cols = 5
         slot_size = 0.16
-        for i, item_id in enumerate(sorted_items):
+        row_pitch = 0.27
+        top_z = -0.10
+        for i, (item_id, item_def) in enumerate(entries):
             col = i % cols
             row = i // cols
             x = -0.68 + col * 0.29
-            z = -0.14 - row * 0.25
-            item_def = ITEMS[item_id]
+            z = top_z - row * row_pitch
             btn = DirectButton(
-                parent=canvas,
+                parent=self._item_canvas,
                 frameSize=(0, slot_size, -slot_size, 0),
                 pos=(x, 0, z),
                 frameColor=(0.2, 0.2, 0.2, 1),
@@ -237,21 +379,76 @@ class DevMenu(DraggableWindow):
                 command=self._spawn_item,
                 extraArgs=[item_id],
             )
+            self._item_widgets.append(btn)
             icon_root = DirectFrame(
                 parent=btn,
                 frameColor=(0, 0, 0, 0),
                 pos=(0.01, 0, -slot_size + 0.01),
                 scale=slot_size - 0.02,
             )
+            self._item_widgets.append(icon_root)
             create_item_icon(icon_root, item_def)
-            OnscreenText(
-                text=item_id,
+            self._item_widgets.append(OnscreenText(
+                text=item_def.get("name", item_id),
                 parent=btn,
                 pos=(slot_size * 0.5, -slot_size - 0.03),
                 scale=0.017,
                 fg=(0.8, 0.8, 0.8, 1),
                 align=TextNode.ACenter,
-            )
+            ))
+            meta = f"{item_def.get('category', '?')} / {item_def.get('subtype', '?')}"
+            self._item_widgets.append(OnscreenText(
+                text=meta,
+                parent=btn,
+                pos=(slot_size * 0.5, -slot_size - 0.075),
+                scale=0.013,
+                fg=(0.62, 0.64, 0.68, 1),
+                align=TextNode.ACenter,
+            ))
+
+        if not entries:
+            self._item_widgets.append(OnscreenText(
+                text="No items match the current filters.",
+                parent=self._item_canvas,
+                pos=(0, -0.18),
+                scale=0.04,
+                fg=(0.68, 0.68, 0.72, 1),
+                align=TextNode.ACenter,
+            ))
+            bottom = -0.6
+        else:
+            total_rows = (len(entries) + cols - 1) // cols
+            bottom = min(-0.6, top_z - max(0, total_rows - 1) * row_pitch - 0.28)
+        self._item_scroll["canvasSize"] = (-0.72, 0.72, bottom, 0.0)
+
+    def _set_item_category_filter(self, value):
+        self._item_category_filter = value
+        self._refresh_items_tab()
+
+    def _set_item_subtype_filter(self, value):
+        self._item_subtype_filter = value
+        self._refresh_items_tab()
+
+    def _set_item_search(self, value):
+        self._item_search = value
+        self._refresh_items_tab()
+
+    def _apply_item_search(self):
+        if self._item_search_entry is not None:
+            self._item_search = self._item_search_entry.get()
+        self._refresh_items_tab()
+
+    def _reset_item_filters(self):
+        self._item_category_filter = "All"
+        self._item_subtype_filter = "All"
+        self._item_search = ""
+        if self._item_category_menu is not None:
+            self._item_category_menu.set("All")
+        if self._item_subtype_menu is not None:
+            self._item_subtype_menu.set("All")
+        if self._item_search_entry is not None:
+            self._item_search_entry.enterText("")
+        self._refresh_items_tab()
 
     def _build_utilities_tab(self, parent):
         utility_specs = [

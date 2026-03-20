@@ -158,6 +158,61 @@ def clone_stack(stack):
     return {"id": stack["id"], "quantity": int(stack["quantity"])}
 
 
+def available_stack_quantity(container, slot_key):
+    stack = container.get_slot(slot_key)
+    return 0 if stack is None else int(stack["quantity"])
+
+
+def find_best_target_slot(container, item_id, quantity=1):
+    stack = {"id": item_id, "quantity": int(quantity)}
+    for slot_key in container.iter_slot_keys():
+        target_stack = container.get_slot(slot_key)
+        if target_stack and target_stack["id"] == item_id and container.can_place(slot_key, stack):
+            return slot_key
+    for slot_key in container.iter_slot_keys():
+        if container.get_slot(slot_key) is None and container.can_place(slot_key, stack):
+            return slot_key
+    return None
+
+
+def transfer_item_quantity(source_container, source_slot, target_container, quantity=1, target_slot=None):
+    source_stack = source_container.get_slot(source_slot)
+    if source_stack is None or quantity <= 0:
+        return 0
+
+    moved_qty = min(int(quantity), int(source_stack["quantity"]))
+    if moved_qty <= 0:
+        return 0
+
+    incoming = {"id": source_stack["id"], "quantity": moved_qty}
+    target_slot = target_slot if target_slot is not None else find_best_target_slot(target_container, incoming["id"], moved_qty)
+    if target_slot is None or not target_container.can_place(target_slot, incoming):
+        return 0
+
+    target_stack = target_container.get_slot(target_slot)
+    if target_stack is None:
+        if hasattr(target_container, "slots"):
+            target_container.slots[target_slot] = clone_stack(incoming)
+        else:
+            return 0
+    else:
+        target_stack["quantity"] += moved_qty
+
+    source_stack["quantity"] -= moved_qty
+    if source_stack["quantity"] <= 0:
+        if hasattr(source_container, "slots"):
+            source_container.slots[source_slot] = None
+        else:
+            return 0
+
+    if source_container is target_container:
+        source_container._notify_changed()
+    else:
+        source_container._notify_changed()
+        target_container._notify_changed()
+    return moved_qty
+
+
 class Inventory:
     def __init__(self, size=28):
         self.slots = [None] * size

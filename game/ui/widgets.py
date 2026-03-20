@@ -4,7 +4,7 @@ import builtins
 import time
 
 from direct.gui import DirectGuiGlobals as DGG
-from direct.gui.DirectGui import DirectButton, DirectFrame, OnscreenText
+from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, OnscreenText
 from panda3d.core import MouseButton, Point3, TextNode
 
 from game.systems.inventory import (
@@ -609,6 +609,215 @@ DRAG_MANAGER = ItemDragManager()
 TOOLTIP_MANAGER = TooltipManager()
 
 
+class ContextMenuManager:
+    def __init__(self):
+        self._base = None
+        self._overlay = None
+        self._frame = None
+        self._buttons = []
+        self._open = False
+
+    def show_at_mouse(self, actions):
+        if not actions:
+            self.hide()
+            return
+        if not self._ensure_base():
+            return
+        TOOLTIP_MANAGER.hide()
+        self._clear_buttons()
+        button_scale = 0.032
+        max_half_width = max(
+            estimate_button_half_width(action["label"], button_scale, padding=0.45, min_half_width=1.6)
+            for action in actions
+        )
+        frame_height = 0.08 + len(actions) * 0.08
+        self._frame["frameSize"] = (0, max_half_width * 0.07 + 0.08, -frame_height, 0)
+        for idx, action in enumerate(actions):
+            btn = create_text_button(
+                self._frame,
+                action["label"],
+                (0.12, 0, -0.06 - idx * 0.08),
+                self._run_action,
+                scale=button_scale,
+                min_half_width=max_half_width,
+                max_half_width=None,
+                padding=0.45,
+                frame_color=action.get("frame_color", (0.24, 0.24, 0.28, 1)),
+                extra_args=[action["callback"]],
+            )
+            self._buttons.append(btn)
+        point = self._mouse_point()
+        width = self._frame["frameSize"][1]
+        height = abs(self._frame["frameSize"][2])
+        x = min(max(point.x + 0.02, -1.2), 1.2 - width)
+        z = max(min(point.z - 0.02, 0.92), -0.92 + height)
+        self._frame.setPos(x, 0, z)
+        self._overlay.show()
+        self._open = True
+
+    def hide(self):
+        self._clear_buttons()
+        self._open = False
+        if self._overlay is not None:
+            self._overlay.hide()
+
+    def _run_action(self, callback):
+        self.hide()
+        callback()
+
+    def _dismiss(self, _event=None):
+        self.hide()
+
+    def _clear_buttons(self):
+        for button in self._buttons:
+            button.destroy()
+        self._buttons = []
+
+    def _ensure_base(self):
+        if self._base is not None:
+            return True
+        base = getattr(builtins, "base", None)
+        if base is None:
+            return False
+        self._base = base
+        self._overlay = DirectFrame(
+            parent=self._base.aspect2d,
+            frameColor=(0, 0, 0, 0),
+            frameSize=(-2.0, 2.0, -2.0, 2.0),
+            relief=DGG.FLAT,
+        )
+        self._overlay.bind(DGG.B1PRESS, self._dismiss)
+        self._overlay.bind(DGG.B3PRESS, self._dismiss)
+        self._frame = DirectFrame(
+            parent=self._overlay,
+            frameColor=(0.08, 0.08, 0.08, 0.96),
+            frameSize=(0, 0.28, -0.2, 0),
+            relief=DGG.FLAT,
+        )
+        self._overlay.hide()
+        return True
+
+    def _mouse_point(self):
+        mouse = self._base.mouseWatcherNode.getMouse()
+        return self._base.aspect2d.getRelativePoint(self._base.render2d, Point3(mouse.x, 0, mouse.y))
+
+
+class QuantityPromptManager:
+    def __init__(self):
+        self._base = None
+        self._overlay = None
+        self._panel = None
+        self._label = None
+        self._entry = None
+        self._confirm_button = None
+        self._cancel_button = None
+        self._callback = None
+        self._max_qty = 0
+
+    def ask(self, prompt, max_qty, callback, default_qty=None):
+        max_qty = int(max_qty)
+        if max_qty <= 0:
+            return
+        if not self._ensure_base():
+            return
+        CONTEXT_MENU_MANAGER.hide()
+        TOOLTIP_MANAGER.hide()
+        self._callback = callback
+        self._max_qty = max_qty
+        default_qty = max(1, min(max_qty, int(default_qty if default_qty is not None else max_qty)))
+        self._label.setText(f"{prompt}\nEnter amount (1-{max_qty})")
+        self._entry.enterText(str(default_qty))
+        self._overlay.show()
+
+    def hide(self):
+        self._callback = None
+        if self._overlay is not None:
+            self._overlay.hide()
+
+    def _confirm(self, _text=None):
+        if self._callback is None:
+            self.hide()
+            return
+        try:
+            qty = int(self._entry.get())
+        except Exception:
+            qty = 0
+        qty = max(1, min(self._max_qty, qty))
+        callback = self._callback
+        self.hide()
+        callback(qty)
+
+    def _ensure_base(self):
+        if self._base is not None:
+            return True
+        base = getattr(builtins, "base", None)
+        if base is None:
+            return False
+        self._base = base
+        self._overlay = DirectFrame(
+            parent=self._base.aspect2d,
+            frameColor=(0, 0, 0, 0.45),
+            frameSize=(-2.0, 2.0, -2.0, 2.0),
+            relief=DGG.FLAT,
+        )
+        self._panel = DirectFrame(
+            parent=self._overlay,
+            frameColor=(0.1, 0.1, 0.1, 0.96),
+            frameSize=(-0.28, 0.28, -0.16, 0.14),
+            pos=(0, 0, 0.05),
+            relief=DGG.FLAT,
+        )
+        self._label = OnscreenText(
+            text="",
+            parent=self._panel,
+            pos=(0, 0.055),
+            scale=0.03,
+            fg=(0.96, 0.96, 0.96, 1),
+            align=TextNode.ACenter,
+            mayChange=True,
+        )
+        self._entry = DirectEntry(
+            parent=self._panel,
+            scale=0.045,
+            pos=(-0.12, 0, -0.02),
+            initialText="1",
+            numLines=1,
+            focus=1,
+            frameColor=(0.18, 0.18, 0.18, 1),
+            text_fg=(1, 1, 1, 1),
+            width=5,
+            command=self._confirm,
+        )
+        self._confirm_button = create_text_button(
+            self._panel,
+            "OK",
+            (-0.1, 0, -0.11),
+            self._confirm,
+            scale=0.032,
+            min_half_width=1.0,
+            max_half_width=None,
+            padding=0.4,
+            frame_color=(0.22, 0.42, 0.22, 1),
+        )
+        self._cancel_button = create_text_button(
+            self._panel,
+            "Cancel",
+            (0.12, 0, -0.11),
+            self.hide,
+            scale=0.032,
+            min_half_width=1.2,
+            max_half_width=None,
+            padding=0.4,
+            frame_color=(0.42, 0.22, 0.22, 1),
+        )
+        self._overlay.hide()
+        return True
+
+
+CONTEXT_MENU_MANAGER = ContextMenuManager()
+QUANTITY_PROMPT_MANAGER = QuantityPromptManager()
+
+
 class ItemSlotCollection:
     DOUBLE_CLICK_SECONDS = 0.35
 
@@ -621,6 +830,8 @@ class ItemSlotCollection:
         on_change=None,
         show_names=False,
         transfer_targets=None,
+        context_name=None,
+        action_builder=None,
     ):
         self.parent = parent
         self.container = container
@@ -629,6 +840,8 @@ class ItemSlotCollection:
         self.on_change = on_change
         self.show_names = show_names
         self.transfer_targets = transfer_targets or []
+        self.context_name = context_name
+        self.action_builder = action_builder
         self.entries = {}
         self._last_click = None
         DRAG_MANAGER.register_collection(self)
@@ -647,6 +860,7 @@ class ItemSlotCollection:
                 command=self._noop,
             )
             button.bind(DGG.B1PRESS, lambda event, slot_key=key: self._on_press(slot_key))
+            button.bind(DGG.B3PRESS, lambda event, slot_key=key: self._on_right_press(slot_key))
             button.bind(DGG.ENTER, lambda event, slot_key=key: self._on_enter(slot_key))
             button.bind(DGG.EXIT, lambda event, slot_key=key: self._on_exit(slot_key))
             icon_root = DirectFrame(
@@ -715,9 +929,23 @@ class ItemSlotCollection:
         return None
 
     def _on_press(self, slot_key):
+        CONTEXT_MENU_MANAGER.hide()
         if self._handle_double_click(slot_key):
             return
         DRAG_MANAGER.begin_drag(self, slot_key)
+
+    def _on_right_press(self, slot_key):
+        if DRAG_MANAGER.active is not None:
+            return
+        stack = self.container.get_slot(slot_key)
+        if stack is None or self.action_builder is None:
+            CONTEXT_MENU_MANAGER.hide()
+            return
+        actions = self.action_builder(self, slot_key, clone_stack(stack)) or []
+        if actions:
+            CONTEXT_MENU_MANAGER.show_at_mouse(actions)
+        else:
+            CONTEXT_MENU_MANAGER.hide()
 
     def _on_enter(self, slot_key):
         DRAG_MANAGER.set_hover_target(self, slot_key)

@@ -1,0 +1,6 @@
+- all stations except forge can be doubled in size. 
+- campfire needs its logs portion doubled but flame can remain the same
+- forge could increase by 20%
+- dev zone floor (cobleston) seems to have its colision defined poorly
+- if the vendors in the dev zone cannot be seated, lets set them statically idle
+- for only the dev zome lets let the carcus resawn for testing

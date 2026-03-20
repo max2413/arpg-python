@@ -115,6 +115,7 @@ class Creature:
         self._combat_target = None
         self._targeted = False
         self._player_damage_by_style = {style: 0.0 for style in PLAYER_XP_STYLES}
+        self._last_damage_taken = 0.0
 
         self.root = NodePath(f"creature_{creature_id}")
         self.root.reparentTo(render)
@@ -516,7 +517,7 @@ class Creature:
 
         self.take_damage(PLAYER_ATTACK_DAMAGE, hud, attacker=player, attack_style="melee")
         if hasattr(player, "grant_combat_xp"):
-            player.grant_combat_xp("melee", PLAYER_ATTACK_DAMAGE)
+            player.grant_combat_xp("melee", self._last_damage_taken)
         self._player_attack_cooldown = PLAYER_ATTACK_COOLDOWN
         return True
 
@@ -553,12 +554,15 @@ class Creature:
 
     def take_damage(self, amount, hud, attacker=None, attack_style=None):
         if self.dead or amount <= 0:
+            self._last_damage_taken = 0.0
             return False
 
-        self.health = max(0, self.health - amount)
-        self._record_damage_contribution(attacker, attack_style, amount)
+        effective_damage = min(amount, self.health)
+        self._last_damage_taken = effective_damage
+        self.health = max(0, self.health - effective_damage)
+        self._record_damage_contribution(attacker, attack_style, effective_damage)
         self._time_since_damage_taken = 0.0
-        _log_combat(f"creature damaged target={self.get_target_name()} amount={amount} health={self.health:.1f}")
+        _log_combat(f"creature damaged target={self.get_target_name()} amount={effective_damage} health={self.health:.1f}")
         if self.health == 0:
             self.dead = True
             self._state = "dead"

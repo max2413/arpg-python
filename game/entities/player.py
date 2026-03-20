@@ -146,6 +146,7 @@ class Player:
         self.max_health = self.stats.get("max_health")
         self.health = float(self.max_health)
         self.dead = False
+        self._last_damage_taken = 0.0
         self._time_since_damage = HEALTH_REGEN_DELAY
         self.melee_ability_range = UNARMED_MELEE_PROFILE["range"]
         self.ranged_ability_range = UNARMED_RANGED_PROFILE["range"]
@@ -176,13 +177,17 @@ class Player:
 
     def take_damage(self, amount, hud=None, attacker=None):
         if self.dead or amount <= 0:
+            self._last_damage_taken = 0.0
             return False
-            
+
+        effective_damage = min(amount, self.health)
+        self._last_damage_taken = effective_damage
+
         # Award defense XP
         if hasattr(self, "stats") and self.stats.skills:
-            self.stats.skills.add_xp("Defense", amount * 0.5)
-            
-        self.health = max(0, self.health - amount)
+            self.stats.skills.add_xp("Defense", effective_damage * 0.5)
+
+        self.health = max(0, self.health - effective_damage)
         self._time_since_damage = 0.0
         if self.health == 0:
             self.dead = True
@@ -407,7 +412,7 @@ class Player:
                 if target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style):
                     # Target died, maybe bonus XP?
                     pass
-                self.grant_combat_xp(xp_style, outcome["damage"])
+                self.grant_combat_xp(xp_style, getattr(target, "_last_damage_taken", outcome["damage"]))
         self._auto_attack_timer = profile["speed"]
 
     def _poll_input(self):
@@ -474,7 +479,7 @@ class Player:
         _report_combat_event(self, target, outcome, xp_style)
         if outcome["type"] != "miss" and outcome["type"] != "parry":
             target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style)
-            self.grant_combat_xp(xp_style, outcome["damage"])
+            self.grant_combat_xp(xp_style, getattr(target, "_last_damage_taken", outcome["damage"]))
 
 
 def _log_combat(message):
