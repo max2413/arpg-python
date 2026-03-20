@@ -1,8 +1,7 @@
-"""
-player.py — Stick figure geometry, BulletCharacterController, WASD movement.
-"""
+"""Bullet-backed player entity using Ursina-facing runtime services."""
 
 import math
+from ursina import Entity, Vec3, scene
 from panda3d.core import (
     Geom,
     GeomNode,
@@ -11,23 +10,22 @@ from panda3d.core import (
     GeomVertexFormat,
     GeomVertexWriter,
     TransparencyAttrib,
-    Vec3,
     BitMask32,
-    KeyboardButton,
 )
-from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, ZUp
+from panda3d.bullet import BulletCharacterControllerNode, BulletCapsuleShape, YUp
 from game.entities.models import (
-    CHARACTER_FOOT_Z,
+    CHARACTER_FOOT_Y,
     HumanoidModel,
     build_equipment_model,
 )
+from game.runtime import get_runtime
 from game.systems.combat import TargetedProjectile, in_attack_range, make_combat_profile, resolve_attack
 from game.systems.inventory import get_item_def
 from game.systems.stats import StatManager
 
 
 MOVE_SPEED   = 12.0
-SPRINT_MULT  = 5.0   # speed multiplier while shift is held
+SPRINT_MULT  = 5.0
 JUMP_SPEED   = 9.0
 JUMP_HEIGHT  = 3.0
 TURN_SPEED   = 180.0
@@ -35,7 +33,6 @@ SPRINT_TURN_MULT = 1.6
 BACKPEDAL_MULT = 0.75
 PLAYER_CAPSULE_RADIUS = 0.5
 PLAYER_CAPSULE_HEIGHT = 3.0
-MAX_HEALTH   = 100
 HEALTH_REGEN_DELAY = 6.0
 HEALTH_REGEN_RATE  = 4.0
 DEBUG_COMBAT_LOGS = False
@@ -51,17 +48,8 @@ UNARMED_RANGED_PROFILE = make_combat_profile(
     projectile_color=(0.95, 0.78, 0.22, 1),
 )
 
-# Animation
-WALK_FREQ   = 3.5   # cycles per second at walk speed
-WALK_AMP    = 35.0  # max swing angle in degrees
-ATTACK_ANIM_DURATION = 0.3
-MELEE_ABILITY_RANGE = 3.1
-RANGED_ABILITY_RANGE = 54.0
-MELEE_ABILITY_DAMAGE = 18
-RANGED_ABILITY_DAMAGE = 14
-# Align the player's visual root to the Bullet capsule bottom and then account
-# for the humanoid model's own internal foot grounding offset.
-PLAYER_VISUAL_OFFSET_Z = -(PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + CHARACTER_FOOT_Z)
+# Vertical offset to align visual feet with capsule bottom
+PLAYER_VISUAL_OFFSET_Y = -(PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + CHARACTER_FOOT_Y)
 GROUND_MARKER_OUTER = (0.02, 0.02, 0.02, 0.42)
 GROUND_MARKER_INNER = (0.92, 0.36, 0.12, 0.18)
 
@@ -80,16 +68,16 @@ def _make_ground_marker(outer_rx=0.72, outer_ry=0.46, inner_rx=0.48, inner_ry=0.
         a0 = math.radians((i / segments) * 360.0)
         a1 = math.radians(((i + 1) / segments) * 360.0)
         ring = [
-            (math.cos(a0) * outer_rx, math.sin(a0) * outer_ry, 0.0, GROUND_MARKER_OUTER),
-            (math.cos(a1) * outer_rx, math.sin(a1) * outer_ry, 0.0, GROUND_MARKER_OUTER),
-            (math.cos(a1) * inner_rx, math.sin(a1) * inner_ry, 0.0, GROUND_MARKER_INNER),
-            (math.cos(a0) * inner_rx, math.sin(a0) * inner_ry, 0.0, GROUND_MARKER_INNER),
+            (math.cos(a0) * outer_rx, 0.0, math.sin(a0) * outer_ry, GROUND_MARKER_OUTER),
+            (math.cos(a1) * outer_rx, 0.0, math.sin(a1) * outer_ry, GROUND_MARKER_OUTER),
+            (math.cos(a1) * inner_rx, 0.0, math.sin(a1) * inner_ry, GROUND_MARKER_INNER),
+            (math.cos(a0) * inner_rx, 0.0, math.sin(a0) * inner_ry, GROUND_MARKER_INNER),
         ]
         base = i * 4
-        for x, y, z, color in ring:
+        for x, y, z, col in ring:
             vertex.addData3(x, y, z)
-            normal.addData3(0, 0, 1)
-            color_w.addData4(*color)
+            normal.addData3(0, 1, 0)
+            color_w.addData4(*col)
         tris.addVertices(base, base + 1, base + 2)
         tris.addVertices(base, base + 2, base + 3)
 
@@ -100,49 +88,47 @@ def _make_ground_marker(outer_rx=0.72, outer_ry=0.46, inner_rx=0.48, inner_ry=0.
     return node
 
 
-class Player:
+class Player(Entity):
     def __init__(self, render, bullet_world, inventory, terrain=None):
+        super().__init__()
         self.render = render
         self.bullet_world = bullet_world
         self.inventory = inventory
         self.terrain = terrain
-
-        # Visual
-        self.model = HumanoidModel(
-            render,
-            skin_color=(0.9, 0.85, 0.75, 1.0),
-            tunic_color=(0.68, 0.24, 0.12, 1.0),
-        )
-        self.figure = self.model.root
-        self._ground_marker = self.figure.attachNewNode(_make_ground_marker())
-        self._ground_marker.setPos(0, 0, 0.04)
-        self._ground_marker.setTransparency(TransparencyAttrib.MAlpha)
-        self._ground_marker.setLightOff()
-        self._ground_marker.setDepthWrite(False)
-        self._ground_marker.setBin("fixed", 13)
-
-        # Physics — capsule covers the stick figure height (~4 units)
-        shape = BulletCapsuleShape(PLAYER_CAPSULE_RADIUS, PLAYER_CAPSULE_HEIGHT, ZUp)
-        self.char_node = BulletCharacterControllerNode(shape, 0.4, "player")
-        self.char_np = render.attachNewNode(self.char_node)
-        self.char_np.setPos(0, 0, PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + 1.0)
-        self.char_np.setCollideMask(BitMask32.allOn())
-        bullet_world.attachCharacter(self.char_node)
 
         # Key state
         self._keys = {"w": False, "s": False, "a": False, "d": False}
         self._sprinting = False
         self._space_down = False
         self._space_was_down = False
-        self._app = None
-        self._mouse_watcher = None
-        self._setup_keys()
         self._jump_pending = False
+
+        # Visuals (Initialize AFTER Entity core is ready)
+        self.model = HumanoidModel(
+            parent=self,
+            skin_color=(0.9, 0.85, 0.75, 1.0),
+            tunic_color=(0.68, 0.24, 0.12, 1.0),
+        )
+        self.figure = self.model
         
-        # We temporarily pass None for skills since they're attached to Game,
-        # but we can pass them in later or fetch from app.
+        # Avoid passing model to constructor to bypass Ursina's buggy model_setter in init
+        self._ground_marker = Entity(parent=self)
+        self._ground_marker.model = _make_ground_marker()
+        self._ground_marker.y = 0.04
+        self._ground_marker.setTransparency(TransparencyAttrib.MAlpha)
+        self._ground_marker.setLightOff()
+        self._ground_marker.setDepthWrite(False)
+        self._ground_marker.setBin("fixed", 13)
+
+        # Physics (URSINA Y-UP)
+        shape = BulletCapsuleShape(PLAYER_CAPSULE_RADIUS, PLAYER_CAPSULE_HEIGHT, YUp)
+        self.char_node = BulletCharacterControllerNode(shape, 0.4, "player")
+        self.char_np = scene.attachNewNode(self.char_node)
+        self.char_np.setPos(0, PLAYER_CAPSULE_HEIGHT * 0.5 + PLAYER_CAPSULE_RADIUS + 1.0, 0)
+        self.char_np.setCollideMask(BitMask32.allOn())
+        bullet_world.attachCharacter(self.char_node)
+        
         self.stats = StatManager(self, inventory=self.inventory)
-        
         self.max_health = self.stats.get("max_health")
         self.health = float(self.max_health)
         self.dead = False
@@ -153,17 +139,13 @@ class Player:
         self.projectiles = []
         self._auto_attack_style = None
         self._auto_attack_timer = 0.0
+        self.inventory.equipment.add_listener(self._on_equipment_changed)
+        self.refresh_equipment_models()
 
-    def _setup_keys(self):
-        import builtins
-        app = builtins.__dict__.get("base")
-        if app is None:
-            return
-        self._app = app
-        self._mouse_watcher = app.mouseWatcherNode
+    def _on_equipment_changed(self):
+        self.refresh_equipment_models()
 
     def refresh_equipment_models(self):
-        """Update visible equipment models based on inventory dynamically."""
         for slot_name in ["weapon", "offhand", "ranged", "head", "chest", "legs", "hands", "feet"]:
             stack = self.inventory.equipment.get_slot(slot_name)
             if stack:
@@ -171,53 +153,40 @@ class Player:
                 self.model.set_equipment(slot_name, model_np)
             else:
                 self.model.set_equipment(slot_name, None)
-        
         self.stats.recalculate()
         self.max_health = self.stats.get("max_health")
 
     def take_damage(self, amount, hud=None, attacker=None):
-        if self.dead or amount <= 0:
-            self._last_damage_taken = 0.0
-            return False
-
-        effective_damage = min(amount, self.health)
-        self._last_damage_taken = effective_damage
-
-        # Award defense XP
-        if hasattr(self, "stats") and self.stats.skills:
-            self.stats.skills.add_xp("Defense", effective_damage * 0.5)
-
-        self.health = max(0, self.health - effective_damage)
+        if self.dead or amount <= 0: self._last_damage_taken = 0.0; return False
+        eff = min(amount, self.health)
+        self._last_damage_taken = eff
+        if hasattr(self, "stats") and self.stats.skills: self.stats.skills.add_xp("Defense", eff * 0.5)
+        self.health = max(0, self.health - eff)
         self._time_since_damage = 0.0
-        if self.health == 0:
-            self.dead = True
-            self._jump_pending = False
-            return True
+        if self.health == 0: self.dead = True; self._jump_pending = False; return True
         return False
 
-    def heal_full(self):
-        self.health = float(self.max_health)
-        self._time_since_damage = HEALTH_REGEN_DELAY
+    def heal_full(self): self.health = float(self.max_health); self._time_since_damage = HEALTH_REGEN_DELAY
 
     def respawn(self, pos=(0, 0, 0)):
-        self.dead = False
-        self.heal_full()
-        self._jump_pending = False
-        self.clear_auto_attack()
-        self._clear_projectiles()
+        self.dead = False; self.heal_full(); self._jump_pending = False; self.clear_auto_attack(); self._clear_projectiles()
         self.char_np.setPos(*pos)
         self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
-        self.char_np.setH(0)
-        self.figure.setColorScale(1, 1, 1, 1)
-        self.figure.setPos(pos[0], pos[1], pos[2] + PLAYER_VISUAL_OFFSET_Z)
-        self.figure.setH(0)
+        self.rotation_y = 0; self.model.set_color_scale(1, 1, 1, 1)
+        self.position = Vec3(pos[0], pos[1] + PLAYER_VISUAL_OFFSET_Y, pos[2])
 
-    def update(self, dt):
+    def update(self):
+        runtime = get_runtime()
+        if runtime is not None and getattr(runtime.game, "_paused", False):
+            return
+
+        from ursina import time
+        dt = time.dt
+        
         if self.dead:
             self.char_node.setLinearMovement(Vec3(0, 0, 0), False)
-            pos = self.char_np.getPos()
-            self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
-            self.figure.setH(self.char_np.getH())
+            p = self.char_np.getPos()
+            self.position = Vec3(p.x, p.y + PLAYER_VISUAL_OFFSET_Y, p.z)
             self.model.set_color_scale(0.45, 0.2, 0.2, 1)
             self.model.animate(dt, False)
             return
@@ -227,282 +196,164 @@ class Player:
             self.health = min(self.max_health, self.health + HEALTH_REGEN_RATE * dt)
 
         self._poll_input()
-        jump_pressed = self._space_down and not self._space_was_down
+        if self._space_down and not self._space_was_down: self._jump_pending = True
         self._space_was_down = self._space_down
-        if jump_pressed:
-            self._jump_pending = True
 
-        heading = self.char_np.getH()
-        turn_speed = TURN_SPEED * (SPRINT_TURN_MULT if self._sprinting else 1.0)
-        if self._keys["a"]:
-            heading += turn_speed * dt
-        if self._keys["d"]:
-            heading -= turn_speed * dt
-        self.char_np.setH(heading)
+        # Turning (Reverted to A/D turning)
+        turn_spd = TURN_SPEED * (SPRINT_TURN_MULT if self._sprinting else 1.0)
+        if self._keys["a"]: self.rotation_y -= turn_spd * dt
+        if self._keys["d"]: self.rotation_y += turn_spd * dt
 
-        heading_rad = math.radians(self.char_np.getH())
-        forward = Vec3(-math.sin(heading_rad), math.cos(heading_rad), 0)
+        # Sync physics orientation
+        self.char_np.setH(-self.rotation_y)
 
-        move = Vec3(0, 0, 0)
-        if self._keys["w"]:
-            move += forward
-        if self._keys["s"]:
-            move -= forward
-
-        moving = move.lengthSquared() > 0
-        sprinting = self._sprinting and self._keys["w"]
-        if moving:
-            move.normalize()
+        # Movement (Reverted to Forward/Back logic)
+        h_rad = math.radians(self.rotation_y)
+        forward = Vec3(math.sin(h_rad), 0, math.cos(h_rad))
+        
+        move_dir = Vec3(0, 0, 0)
+        if self._keys["w"]: move_dir += forward
+        if self._keys["s"]: move_dir -= forward
+        
+        is_moving = move_dir.length_squared() > 0
+        if is_moving:
+            move_dir.normalize()
             speed = MOVE_SPEED
-            if self._keys["s"] and not self._keys["w"]:
-                speed *= BACKPEDAL_MULT
-            if sprinting:
-                speed *= SPRINT_MULT
-            velocity = move * speed
+            if self._keys["s"] and not self._keys["w"]: speed *= BACKPEDAL_MULT
+            if self._sprinting and self._keys["w"]: speed *= SPRINT_MULT
+            velocity = move_dir * speed
         else:
             velocity = Vec3(0, 0, 0)
 
+        # Apply world-space movement
         self.char_node.setLinearMovement(velocity, False)
 
         if self._jump_pending and self.char_node.isOnGround():
-            self.char_node.setMaxJumpHeight(JUMP_HEIGHT)
-            self.char_node.setJumpSpeed(JUMP_SPEED)
-            self.char_node.doJump()
-            self._jump_pending = False
+            self.char_node.setMaxJumpHeight(JUMP_HEIGHT); self.char_node.setJumpSpeed(JUMP_SPEED); self.char_node.doJump(); self._jump_pending = False
 
-        self.refresh_equipment_models()
-        self.model.animate(dt, moving, speed_mult=(SPRINT_MULT if sprinting else 1.0))
+        self.model.animate(dt, is_moving, speed_mult=(SPRINT_MULT if self._sprinting else 1.0))
+        p = self.char_np.getPos(); self.position = Vec3(p.x, p.y + PLAYER_VISUAL_OFFSET_Y, p.z)
 
-        # Sync visual to physics.
-        pos = self.char_np.getPos()
-        self.figure.setPos(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
-        self.figure.setH(self.char_np.getH())
-        self.model.set_color_scale(1, 1, 1, 1)
-
-    def get_pos(self):
-        pos = self.char_np.getPos()
-        return Vec3(pos.x, pos.y, pos.z + PLAYER_VISUAL_OFFSET_Z)
-
-    def get_health_display(self):
-        return int(math.ceil(self.health))
-
-    def is_targetable(self):
-        return not self.dead
-
-    def get_target_point(self):
-        return self.get_pos() + Vec3(0, 0, 2.2)
-
-    def get_target_name(self):
-        return "Player"
-
+    def get_pos(self): return self.position - Vec3(0, PLAYER_VISUAL_OFFSET_Y, 0)
+    def get_health_display(self): return int(math.ceil(self.health))
+    def is_targetable(self): return not self.dead
+    def get_target_point(self): return self.get_pos() + Vec3(0, 2.2, 0)
+    def get_target_name(self): return "Player"
     def get_combat_level(self):
-        if hasattr(self, "stats") and self.stats.skills:
-            return self.stats.skills.get_combat_level()
+        if hasattr(self, "stats") and self.stats.skills: return self.stats.skills.get_combat_level()
         return 1
-
-    def is_moving(self):
-        return self._keys["w"] or self._keys["s"]
-
-    def is_action_interrupting(self):
-        return self.is_moving() or self._jump_pending or not self.char_node.isOnGround()
-
-    def is_advancing(self):
-        return self._keys["w"]
-
-    def is_turning(self):
-        return self._keys["a"] or self._keys["d"]
-
-    def get_heading(self):
-        return self.char_np.getH()
+    def is_moving(self): return self._keys["w"] or self._keys["s"]
+    def is_action_interrupting(self): return self.is_moving() or self._jump_pending or not self.char_node.isOnGround()
+    def is_advancing(self): return self._keys["w"]
+    def is_turning(self): return self._keys["a"] or self._keys["d"]
+    def get_heading(self): return self.rotation_y
 
     def get_combat_profile(self, style):
-        profile = None
         if style == "melee":
-            profile = dict(UNARMED_MELEE_PROFILE)
-            profile["damage"] = self.stats.get("melee_damage")
-            profile["xp_style"] = "melee"
+            p = dict(UNARMED_MELEE_PROFILE); p["damage"] = self.stats.get("melee_damage"); p["xp_style"] = "melee"
+            return p
         elif style == "ranged":
-            ranged_item = self.inventory.equipment.get_slot("ranged")
-            if ranged_item is None:
-                return None
-            profile = dict(UNARMED_RANGED_PROFILE)
-            item_def = get_item_def(ranged_item["id"])
-            subtype = item_def.get("subtype") if item_def else None
-            if subtype in ("wand", "staff"):
-                profile["damage"] = self.stats.get("magic_damage")
-                profile["name"] = item_def["name"] if item_def else "Magic"
-                profile["projectile_color"] = tuple(item_def.get("accent_color", (0.35, 0.75, 1.0, 1.0))) if item_def else (0.35, 0.75, 1.0, 1.0)
-                profile["xp_style"] = "magic"
+            r_item = self.inventory.equipment.get_slot("ranged")
+            if r_item is None: return None
+            p = dict(UNARMED_RANGED_PROFILE); idef = get_item_def(r_item["id"]); sub = idef.get("subtype") if idef else None
+            if sub in ("wand", "staff"):
+                p["damage"] = self.stats.get("magic_damage"); p["name"] = idef["name"] if idef else "Magic"; p["projectile_color"] = tuple(idef.get("accent_color", (0.35, 0.75, 1.0, 1.0))) if idef else (0.35, 0.75, 1.0, 1.0); p["xp_style"] = "magic"
             else:
-                profile["damage"] = self.stats.get("ranged_damage")
-                profile["name"] = item_def["name"] if item_def else profile["name"]
-                profile["xp_style"] = "ranged"
-        return profile
+                p["damage"] = self.stats.get("ranged_damage"); p["name"] = idef["name"] if idef else p["name"]; p["xp_style"] = "ranged"
+            return p
+        return None
 
     def grant_combat_xp(self, style, amount):
-        if amount <= 0 or not hasattr(self, "stats") or not self.stats.skills:
+        if amount <= 0 or not hasattr(self, "stats") or not self.stats.skills: return
+        sn = {"melee": "Melee", "ranged": "Ranged", "magic": "Magic"}.get(style)
+        if sn is None: return
+        lvls = self.stats.skills.add_xp(sn, amount)
+        runtime = get_runtime()
+        if runtime is None or runtime.hud is None:
             return
-        skill_name = {
-            "melee": "Melee",
-            "ranged": "Ranged",
-            "magic": "Magic",
-        }.get(style)
-        if skill_name is None:
-            return
-        levels = self.stats.skills.add_xp(skill_name, amount)
-        if levels > 0 and self._app and hasattr(self._app, "hud"):
-            self._app.hud.refresh_skills()
-            self._app.hud.show_prompt(f"{skill_name} level up! Level {self.stats.skills.get_level(skill_name)}")
-            self._app.hud.add_log(f"{skill_name} level up! Level {self.stats.skills.get_level(skill_name)}")
-        elif self._app and hasattr(self._app, "hud"):
-            self._app.hud.refresh_skills()
+        if lvls > 0:
+            runtime.hud.refresh_skills()
+            runtime.hud.show_prompt(f"{sn} level up! Level {self.stats.skills.get_level(sn)}")
+            runtime.hud.add_log(f"{sn} level up! Level {self.stats.skills.get_level(sn)}")
+        else:
+            runtime.hud.refresh_skills()
 
     def play_work_animation(self):
-        if hasattr(self, "model") and self.model:
-            self.model.play_work()
+        if hasattr(self, "model") and self.model: self.model.play_work()
 
     def start_auto_attack(self, style):
-        if style not in ("melee", "ranged"):
-            return
-        if self._auto_attack_style != style:
-            self._auto_attack_style = style
-            self._auto_attack_timer = 0.0
-            _log_combat(f"player auto-attack started style={style}")
+        if style not in ("melee", "ranged"): return
+        if self._auto_attack_style != style: self._auto_attack_style = style; self._auto_attack_timer = 0.0
 
-    def clear_auto_attack(self):
-        if self._auto_attack_style is not None:
-            _log_combat(f"player auto-attack cleared style={self._auto_attack_style}")
-        self._auto_attack_style = None
-        self._auto_attack_timer = 0.0
+    def clear_auto_attack(self): self._auto_attack_style = None; self._auto_attack_timer = 0.0
 
     def combat_tick(self, tick_dt, target, hud):
-        if self.dead:
-            self.clear_auto_attack()
-            return
-        if self._auto_attack_style is None:
-            return
-        if target is None or not target.is_targetable():
-            self.clear_auto_attack()
-            return
-
-        profile = self.get_combat_profile(self._auto_attack_style)
-        if profile is None:
-            self.clear_auto_attack()
-            return
-
+        if self.dead or self._auto_attack_style is None or target is None or not target.is_targetable(): self.clear_auto_attack(); return
+        prof = self.get_combat_profile(self._auto_attack_style)
+        if prof is None: self.clear_auto_attack(); return
         self._auto_attack_timer = max(0.0, self._auto_attack_timer - tick_dt)
-        if self._auto_attack_timer > 0.0:
-            return
-
-        target_point = target.get_target_point()
-        if not in_attack_range(self.get_pos(), target_point, profile):
-            return
-
-        self.face_target(target_point)
-        self.model.play_attack(self._auto_attack_style)
-
-        if profile["projectile"]:
-            self.fire_target_projectile(target, profile)
+        if self._auto_attack_timer > 0.0: return
+        tp = target.get_target_point()
+        if not in_attack_range(self.get_pos(), tp, prof): return
+        self.face_target(tp); self.model.play_attack(self._auto_attack_style)
+        if prof["projectile"]: self.fire_target_projectile(target, prof)
         else:
-            xp_style = profile.get("xp_style", self._auto_attack_style)
-            outcome = resolve_attack(self, target, xp_style, profile["damage"])
-            _log_combat(f"player melee {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
-            _report_combat_event(self, target, outcome, xp_style)
-            if outcome["type"] != "miss" and outcome["type"] != "parry":
-                if target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style):
-                    # Target died, maybe bonus XP?
-                    pass
-                self.grant_combat_xp(xp_style, getattr(target, "_last_damage_taken", outcome["damage"]))
-        self._auto_attack_timer = profile["speed"]
+            xs = prof.get("xp_style", self._auto_attack_style); out = resolve_attack(self, target, xs, prof["damage"]); _report_combat_event(self, target, out, xs)
+            if out["type"] not in ("miss", "parry"):
+                target.take_damage(out["damage"], hud, attacker=self, attack_style=xs); self.grant_combat_xp(xs, getattr(target, "_last_damage_taken", out["damage"]))
+        self._auto_attack_timer = prof["speed"]
 
     def _poll_input(self):
-        if self._mouse_watcher is None:
+        runtime = get_runtime()
+        if runtime is None:
             return
-        watcher = self._mouse_watcher
-        self._keys["w"] = watcher.isButtonDown(KeyboardButton.ascii_key("w"))
-        self._keys["s"] = watcher.isButtonDown(KeyboardButton.ascii_key("s"))
-        self._keys["a"] = watcher.isButtonDown(KeyboardButton.ascii_key("a"))
-        self._keys["d"] = watcher.isButtonDown(KeyboardButton.ascii_key("d"))
-        self._space_down = watcher.isButtonDown(KeyboardButton.space())
-        self._sprinting = (
-            watcher.isButtonDown(KeyboardButton.shift()) or
-            watcher.isButtonDown(KeyboardButton.lshift()) or
-            watcher.isButtonDown(KeyboardButton.rshift())
-        )
+        input_state = runtime.input_state
+        self._keys["w"] = input_state.is_held("w")
+        self._keys["s"] = input_state.is_held("s")
+        self._keys["a"] = input_state.is_held("a")
+        self._keys["d"] = input_state.is_held("d")
+        self._space_down = input_state.is_held("space")
+        self._sprinting = input_state.is_held("shift")
 
-    def face_target(self, target_pos):
-        delta = target_pos - self.get_pos()
-        delta.z = 0
-        if delta.lengthSquared() > 0:
-            self.char_np.setH(math.degrees(math.atan2(-delta.x, delta.y)))
+    def face_target(self, tp):
+        delta = tp - self.get_pos(); delta.y = 0
+        if delta.length_squared() > 0: self.rotation_y = math.degrees(math.atan2(delta.x, delta.z))
 
-    def distance_to(self, target_pos):
-        delta = target_pos - self.get_pos()
-        delta.z = 0
+    def distance_to(self, tp):
+        delta = tp - self.get_pos(); delta.y = 0
         return delta.length()
 
     def fire_target_projectile(self, target, profile):
-        self._clear_expired_target_projectiles()
-        origin = self.get_pos() + Vec3(0, 0, 2.2)
-        _log_combat(f"player projectile fired target={target.get_target_name()} base_damage={profile['damage']}")
-        self.projectiles.append(
-            TargetedProjectile(self.render, origin, target, profile["damage"], profile, self._on_projectile_hit)
-        )
+        self._clear_expired_target_projectiles(); origin = self.get_pos() + Vec3(0, 2.2, 0)
+        self.projectiles.append(TargetedProjectile(self.render, origin, target, profile["damage"], profile, self._on_projectile_hit))
 
     def update_projectiles(self, dt, hud):
         active = []
-        for projectile in self.projectiles:
-            if projectile.update(dt, hud):
-                continue
-            active.append(projectile)
+        for p in self.projectiles:
+            if p.update(dt, hud): continue
+            active.append(p)
         self.projectiles = active
 
     def _clear_projectiles(self):
-        for projectile in self.projectiles:
-            projectile.remove()
+        for p in self.projectiles: p.remove()
         self.projectiles = []
 
     def _clear_expired_target_projectiles(self):
         active = []
-        for projectile in self.projectiles:
-            if projectile.expired:
-                projectile.remove()
-            else:
-                active.append(projectile)
+        for p in self.projectiles:
+            if p.expired: p.remove()
+            else: active.append(p)
         self.projectiles = active
 
     def _on_projectile_hit(self, target, base_damage, hud):
-        profile = self.get_combat_profile("ranged")
-        xp_style = profile.get("xp_style", "ranged") if profile else "ranged"
-        outcome = resolve_attack(self, target, xp_style, base_damage)
-        _log_combat(f"player ranged {outcome['type']} target={target.get_target_name()} damage={outcome['damage']}")
-        _report_combat_event(self, target, outcome, xp_style)
-        if outcome["type"] != "miss" and outcome["type"] != "parry":
-            target.take_damage(outcome["damage"], hud, attacker=self, attack_style=xp_style)
-            self.grant_combat_xp(xp_style, getattr(target, "_last_damage_taken", outcome["damage"]))
-
-
-def _log_combat(message):
-    import builtins
-    app = getattr(builtins, "base", None)
-    if app is not None and hasattr(app, "hud"):
-        app.hud.add_combat_log(message)
-    if DEBUG_COMBAT_LOGS:
-        print(f"[combat] {message}")
-
+        prof = self.get_combat_profile("ranged"); xs = prof.get("xp_style", "ranged") if prof else "ranged"
+        out = resolve_attack(self, target, xs, base_damage); _report_combat_event(self, target, out, xs)
+        if out["type"] not in ("miss", "parry"):
+            target.take_damage(out["damage"], hud, attacker=self, attack_style=xs); self.grant_combat_xp(xs, getattr(target, "_last_damage_taken", out["damage"]))
 
 def _report_combat_event(attacker, defender, outcome, style):
-    import builtins
-    app = getattr(builtins, "base", None)
-    if app is not None and hasattr(app, "hud"):
-        app.hud.record_combat_event(
-            {
-                "attacker": attacker.get_target_name(),
-                "defender": defender.get_target_name(),
-                "style": style,
-                "result": outcome.get("type", "hit"),
-                "damage": outcome.get("damage", 0.0),
-                "base_damage": outcome.get("base_damage", 0.0),
-                "mitigated": outcome.get("mitigated", 0.0),
-            }
-        )
+    runtime = get_runtime()
+    if runtime is not None and runtime.hud is not None:
+        runtime.hud.record_combat_event({
+            "attacker": attacker.get_target_name(), "defender": defender.get_target_name(), "style": style, "result": outcome.get("type", "hit"), "damage": outcome.get("damage", 0.0), "base_damage": outcome.get("base_damage", 0.0), "mitigated": outcome.get("mitigated", 0.0),
+        })

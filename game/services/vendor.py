@@ -1,6 +1,5 @@
 """Vendor NPC and draggable shop UI."""
 
-import builtins
 import json
 import math
 import os
@@ -10,6 +9,7 @@ from panda3d.core import TextNode, Vec3
 from direct.gui.DirectGui import DGG, DirectFrame, DirectScrolledFrame, OnscreenText
 
 from game.entities.npc import ServiceNpc
+from game.runtime import get_runtime
 from game.systems.inventory import build_item_tooltip, clone_stack, get_item_def, is_stackable
 from game.systems.paths import data_path
 from game.ui.widgets import (
@@ -91,9 +91,10 @@ class Vendor(ServiceNpc):
                     self._state = "patrol"
                     angle = random.uniform(0, 2 * math.pi)
                     dist = random.uniform(2.0, VENDOR_PATROL_RADIUS)
-                    self._target_pos = self.patrol_center + Vec3(math.cos(angle) * dist, math.sin(angle) * dist, 0)
+                    self._target_pos = self.patrol_center + Vec3(math.cos(angle) * dist, 0, math.sin(angle) * dist)
             elif self._state == "patrol":
                 diff = self._target_pos - self.pos
+                diff.y = 0
                 dist = diff.length()
                 if dist < 0.2:
                     self._state = "idle"
@@ -104,8 +105,8 @@ class Vendor(ServiceNpc):
                     self.pos += diff / dist * min(step, dist)
                     self.root.setPos(self.pos)
                     if self._ghost_np is not None and not self._ghost_np.isEmpty():
-                        self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
-                    self.root.setH(math.degrees(math.atan2(-diff.x, diff.y)))
+                        self._ghost_np.setPos(self.pos.x, self.pos.y + 1.5, self.pos.z)
+                    self.root.setH(math.degrees(math.atan2(-diff.x, diff.z)))
 
         self._animate(dt, moving=moving)
         self.update_prompt(player_pos, hud, ui_open=self.ui_open)
@@ -351,9 +352,9 @@ class Vendor(ServiceNpc):
     def _refresh_after_transaction(self):
         if self._gold_label is not None:
             self._gold_label.setText(f"Gold: {self._gold_count()}")
-        app = getattr(builtins, "base", None)
-        if app is not None and hasattr(app, "hud"):
-            app.hud.refresh_inventory()
+        runtime = get_runtime()
+        if runtime is not None and runtime.hud is not None:
+            runtime.hud.refresh_inventory()
         if self._active_tab == "buy":
             self._show_buy_tab()
         elif self._active_tab == "sell":

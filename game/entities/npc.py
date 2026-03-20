@@ -1,18 +1,15 @@
 """
 npc.py - Shared helpers for interactable NPCs and simple procedural buildings.
+URSINA Y-UP VERSION
 """
 
 import math
 
-from panda3d.core import (
-    Vec3,
-    NodePath,
-    TextNode,
-    BillboardEffect,
-)
+from panda3d.core import Vec3, TextNode, BillboardEffect
 from panda3d.bullet import BulletGhostNode, BulletSphereShape
 
 from game.entities.models import HumanoidModel
+from game.runtime import get_runtime
 
 
 def attach_billboard_label(parent, text, pos, scale, color, shadow=(0, 0, 0, 0.8)):
@@ -33,7 +30,8 @@ def build_humanoid_npc(parent, body_color, head_color, accent_color=None, label=
     tunic_color = accent_color if accent_color is not None else body_color
     model = HumanoidModel(parent, skin_color=head_color, tunic_color=tunic_color)
     if label:
-        attach_billboard_label(model.root, label, (0, 0, 4.2), 1.0, (1, 0.95, 0.75, 1))
+        # URSINA Y-UP: Height on Y
+        attach_billboard_label(model.root, label, (0, 4.2, 0), 1.0, (1, 0.95, 0.75, 1))
     return model
 
 
@@ -58,8 +56,7 @@ class InteractableNpc:
         self._prompt_shown = False
         self.model = None
 
-        self.root = NodePath(self.__class__.__name__.lower())
-        self.root.reparentTo(render)
+        self.root = self.render.attachNewNode(self.__class__.__name__.lower())
         self.root.setPos(self.pos)
 
         self._build_visual()
@@ -77,13 +74,26 @@ class InteractableNpc:
         ghost = BulletGhostNode(f"{self.__class__.__name__.lower()}_ghost")
         ghost.addShape(shape)
         self._ghost_np = self.render.attachNewNode(ghost)
-        self._ghost_np.setPos(self.pos.x, self.pos.y, self.pos.z + 1.5)
+        # URSINA Y-UP: Height on Y
+        self._ghost_np.setPos(self.pos.x, self.pos.y + 1.5, self.pos.z)
         self.bullet_world.attachGhost(ghost)
 
-    def update_prompt(self, player_pos, hud, ui_open=False):
+    def update(self):
+        runtime = get_runtime()
+        if runtime is None or runtime.player is None or runtime.hud is None:
+            return
+        player_pos = runtime.player.get_pos()
+        hud = runtime.hud
+        ui_open = runtime.game._modal_ui_open()
+
+        from ursina import time
+        dt = time.dt
+        self._animate(dt)
+
+        # Distance on XZ plane
         dx = player_pos.x - self.pos.x
-        dy = player_pos.y - self.pos.y
-        self._in_range = math.sqrt(dx * dx + dy * dy) <= self.proximity
+        dz = player_pos.z - self.pos.z
+        self._in_range = math.sqrt(dx * dx + dz * dz) <= self.proximity
 
         if ui_open:
             if self._prompt_shown:

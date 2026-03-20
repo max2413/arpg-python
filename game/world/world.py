@@ -1,4 +1,6 @@
-"""World terrain, static scenery, and collision geometry."""
+"""World terrain, static scenery, and collision geometry.
+URSINA Y-UP VERSION
+"""
 
 from panda3d.core import Vec3
 from panda3d.bullet import (
@@ -14,7 +16,7 @@ from game.world.terrain import TerrainField
 
 WORLD_HALF = 500
 TERRAIN_RENDER_STEP = 12
-TERRAIN_COLLISION_BASE_Z = -20.0
+TERRAIN_COLLISION_BASE_Y = -20.0
 
 
 class World:
@@ -44,18 +46,18 @@ class World:
 
         ground_node = make_terrain_geom(self.terrain, self.world_half, TERRAIN_RENDER_STEP)
         self._ground_np = self.render.attachNewNode(ground_node)
-        self._ground_np.setBin("fixed", 10)
         self._build_terrain_collision()
 
     def _build_base_ground(self):
         if self._base_ground_np is not None and not self._base_ground_np.isEmpty():
             return
-        shape = BulletPlaneShape(Vec3(0, 0, 1), 0)
+        # URSINA Y-UP: Normal points Up on Y
+        shape = BulletPlaneShape(Vec3(0, 1, 0), 0)
         body = BulletRigidBodyNode("base_ground")
         body.setMass(0)
         body.addShape(shape)
         self._base_ground_np = self.render.attachNewNode(body)
-        self._base_ground_np.setPos(0, 0, TERRAIN_COLLISION_BASE_Z)
+        self._base_ground_np.setPos(0, TERRAIN_COLLISION_BASE_Y, 0)
         self.bullet_world.attachRigidBody(body)
 
     def _build_terrain_collision(self):
@@ -83,14 +85,16 @@ class World:
         wall_color = (0.6, 0.5, 0.4, 1)
         edge = self.world_half
 
-        # Boundary walls (invisible fences)
-        for x, y, sx, sy in [
+        # Boundary walls (invisible fences) on XZ plane
+        # size: (width_x, height_y, depth_z)
+        for x, z, sx, sz in [
             (0, edge, edge * 2, 2),
             (0, -edge, edge * 2, 2),
             (edge, 0, 2, edge * 2),
             (-edge, 0, 2, edge * 2),
         ]:
-            self._make_box((x, y, 6), (sx, sy, 12), wall_color)
+            # Height = 12, Y-center = 6
+            self._make_box((x, 6, z), (sx, 12, sz), wall_color)
 
     def destroy(self):
         if self._ground_np is not None and not self._ground_np.isEmpty():

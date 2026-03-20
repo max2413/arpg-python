@@ -1,16 +1,8 @@
 """Game runtime entrypoint and top-level wiring."""
 
-import math
-
-from direct.showbase.ShowBase import ShowBase
-from direct.gui.DirectGui import DirectFrame, DirectButton, OnscreenText
+from ursina import Entity, Text, Ursina, camera, color, destroy, scene
 from panda3d.bullet import BulletWorld, BulletDebugNode
 from panda3d.core import (
-    AmbientLight,
-    DirectionalLight,
-    Point2,
-    Point3,
-    TextNode,
     Vec3,
     WindowProperties,
 )
@@ -26,94 +18,95 @@ from game.systems.quests import QuestManager, create_tutorial_quest
 from game.ui.hud import HUD
 from game.ui.dev_menu import DevMenu
 from game.ui.crafting_ui import CraftingUI
-from game.entities.creatures import load_creature_defs
+from game.ui.ursina_widgets import FlatButton
 from game.services.crafting import load_recipes
+from game.runtime import RuntimeContext, RuntimeDriver, configure_scene_lighting, set_runtime
 from game.world.levels import LevelManager
 
 RESPAWN_DELAY = 3.0
 PLAYER_TEST_DROP_HEIGHT = 14.0
 
 
-class Game(ShowBase):
+class Game:
     def __init__(self):
-        super().__init__()
+        self.app = Ursina()
+        self._render_root = Entity(parent=scene)
         world_seed = 42
 
         props = WindowProperties()
         props.setTitle("ARPG Prototype")
-        self.win.requestProperties(props)
+        self.app.win.requestProperties(props)
 
         self._paused = False
         self._pause_ui = None
         self._respawn_timer = 0.0
         self._was_player_dead = False
-        self._spawn_point = Vec3(0, 0, PLAYER_TEST_DROP_HEIGHT)
+        # URSINA Y-UP: Spawn high up on Y
+        self._spawn_point = Vec3(0, PLAYER_TEST_DROP_HEIGHT, 0)
         self._collision_debug_enabled = False
         self._collision_debug_np = None
         self._benchmark_target = None
         self._benchmark_started = None
 
         self.bullet_world = BulletWorld()
-        self.bullet_world.setGravity(Vec3(0, 0, -25))
+        self.bullet_world.setGravity(Vec3(0, -25, 0))
         self._setup_collision_debug()
+
+        self.runtime = RuntimeContext(self.app, self, self.bullet_world)
+        set_runtime(self.runtime)
 
         self.inventory = Inventory(size=28)
         self.skills = Skills()
-        self.quest_manager = QuestManager(self)
-        load_game(self.inventory, self.skills, self.quest_manager)
+        self.app.quest_manager = QuestManager(self)
+        self.quest_manager = self.app.quest_manager
+        load_game(self.inventory, self.skills, self.app.quest_manager)
+
         self._setup_lighting()
+
         self.player = Player(self.render, self.bullet_world, self.inventory, terrain=None)
+        self.player._app = self
         self.player.stats.skills = self.skills
         self.player.stats.recalculate()
         self.cam_controller = CameraController(self.cam, self.player, self.bullet_world)
         load_recipes()
-        self.hud = HUD(self.inventory, self.skills, player=self.player)
+        self.hud = HUD(self.inventory, self.skills, player=self.player, app=self.app)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
         
         self.selection_manager = SelectionManager(self)
         self.combat_manager = CombatManager(self)
 
-        if not self.quest_manager.active_quests and not self.quest_manager.completed_ids:
-            self.quest_manager.start_quest(create_tutorial_quest())
+        # Keep compatibility access on the Ursina app while gameplay moves to runtime services.
+        self.app.player = self.player
+        self.app.hud = self.hud
+        self.app.selection_manager = self.selection_manager
+        self.app.game = self
+
+        if not self.app.quest_manager.active_quests and not self.app.quest_manager.completed_ids:
+            self.app.quest_manager.start_quest(create_tutorial_quest())
 
         self.crafting_ui = CraftingUI(self)
-        
         self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
         self._load_level("overworld", "default")
-        
         self.dev_menu = DevMenu(self)
 
-        self.accept("i", self.hud.toggle_inventory)
-        self.accept("c", self.hud.toggle_equipment)
-        self.accept("k", self.hud.toggle_skills)
-        self.accept("l", self.hud.toggle_game_log)
-        self.accept("j", self.hud.toggle_combat_log)
-        self.accept("f4", self.hud.toggle_combat_debug)
-        self.accept("f1", self.dev_menu.toggle)
-        self.accept("escape", self._on_escape)
-        self.accept("e", self._on_e_pressed)
-        self.accept("e-up", self._on_e_released)
-        self.accept("mouse1", self._on_mouse1)
-        self.accept("tab", self.selection_manager.on_tab_target)
-        self.accept("1", self._on_melee_ability)
-        self.accept("2", self._on_ranged_ability)
-        self.accept("f3", self._toggle_collision_debug)
+        self.runtime.player = self.player
+        self.runtime.hud = self.hud
+        self.runtime.crafting_ui = self.crafting_ui
+        self.runtime.quest_manager = self.quest_manager
 
-        self.taskMgr.add(self.update, "game_update")
+        self.app.accept("f1", self._toggle_dev_menu)
+        self._driver = RuntimeDriver(self.update_frame, self.handle_input)
+
+    def _toggle_dev_menu(self):
+        self.dev_menu.toggle()
 
     def _setup_lighting(self):
-        ambient = AmbientLight("world_ambient")
-        ambient.setColor((0.42, 0.42, 0.46, 1.0))
-        ambient_np = self.render.attachNewNode(ambient)
-
-        sun = DirectionalLight("world_sun")
-        sun.setColor((0.92, 0.9, 0.82, 1.0))
-        sun_np = self.render.attachNewNode(sun)
-        sun_np.setHpr(-38, -52, 0)
-
-        self.render.setLight(ambient_np)
-        self.render.setLight(sun_np)
-
+        lighting = configure_scene_lighting()
+        self._sky = lighting["sky"]
+        self._ambient = lighting["ambient"]
+        self._sun = lighting["sun"]
+        self._fill = lighting["fill"]
+        
     def _setup_collision_debug(self):
         debug_node = BulletDebugNode("bullet_debug")
         debug_node.showWireframe(True)
@@ -136,6 +129,14 @@ class Game(ShowBase):
                 self.hud.show_prompt("Collision debug: OFF")
 
     @property
+    def render(self):
+        return self._render_root
+
+    @property
+    def cam(self):
+        return self.app.cam
+
+    @property
     def _active_level(self):
         return self.level_manager.get_active_level()
 
@@ -149,7 +150,8 @@ class Game(ShowBase):
         return self._modal_ui_open() or self.hud.is_any_window_open()
 
     def _modal_ui_open(self):
-        return any(obj.ui_open for obj in self._level_ui_interactables()) or self._paused
+        crafting_open = bool(self.crafting_ui.is_open()) if hasattr(self, "crafting_ui") else False
+        return any(obj.ui_open for obj in self._level_ui_interactables()) or crafting_open or self._paused
 
     def _open_ui(self, ui_obj):
         ui_obj.open_ui()
@@ -162,74 +164,49 @@ class Game(ShowBase):
         self._paused = True
         self.cam_controller.set_ui_open(True)
 
-        self._pause_ui = DirectFrame(
-            frameColor=(0, 0, 0, 0.7),
-            frameSize=(-0.5, 0.5, -0.35, 0.35),
-            pos=(0, 0, 0),
-        )
-        OnscreenText(
-            text="Paused",
-            parent=self._pause_ui,
-            pos=(0, 0.22),
-            scale=0.08,
-            fg=(1, 1, 1, 1),
-            align=TextNode.ACenter,
-        )
-        DirectButton(
-            parent=self._pause_ui,
-            text="Resume",
-            scale=0.06,
-            pos=(0, 0, 0.05),
-            command=self._close_pause,
-            frameColor=(0.2, 0.5, 0.2, 1),
-            text_fg=(1, 1, 1, 1),
-        )
-        DirectButton(
-            parent=self._pause_ui,
-            text="Save Game",
-            scale=0.06,
-            pos=(0, 0, -0.06),
-            command=self._save_current_game,
-            frameColor=(0.2, 0.4, 0.6, 1),
-            text_fg=(1, 1, 1, 1),
-        )
-        DirectButton(
-            parent=self._pause_ui,
-            text="Regenerate World",
-            scale=0.055,
-            pos=(0, 0, -0.16),
-            command=self._regenerate_overworld,
-            frameColor=(0.45, 0.32, 0.1, 1),
-            text_fg=(1, 1, 1, 1),
-        )
-        DirectButton(
-            parent=self._pause_ui,
-            text="Exit Game",
-            scale=0.06,
-            pos=(0, 0, -0.28),
-            command=self._exit_game,
-            frameColor=(0.6, 0.1, 0.1, 1),
-            text_fg=(1, 1, 1, 1),
-        )
+        self._pause_ui = Entity(parent=camera.ui)
+        Entity(parent=self._pause_ui, model="quad", color=color.rgba(0, 0, 0, 180), scale=(2, 2), z=1)
+        panel = Entity(parent=self._pause_ui, model="quad", color=color.rgba(18, 20, 24, 242), scale=(0.34, 0.40), z=0)
+        Text(parent=panel, text="Paused", origin=(0, 0), position=(0, 0.36, -0.02), scale=2.0, color=color.white)
+        for idx, (label, callback, tint) in enumerate([
+            ("Resume", self._close_pause, color.rgba32(56, 132, 72)),
+            ("Save Game", self._save_current_game, color.rgba32(56, 92, 138)),
+            ("Regenerate World", self._regenerate_overworld, color.rgba32(120, 92, 38)),
+            ("Exit Game", self._exit_game, color.rgba32(156, 42, 42)),
+        ]):
+            FlatButton(
+                parent=panel,
+                text=label,
+                scale=(0.78, 0.14),
+                position=(0, 0.12 - idx * 0.18, -0.02),
+                color_value=tint,
+                highlight_color=tint.tint(.15),
+                pressed_color=tint.tint(-.1),
+                text_scale=1.2,
+                on_click=callback,
+            )
 
     def _save_current_game(self):
-        save_game(self.inventory, self.skills, self.quest_manager)
+        save_game(self.inventory, self.skills, self.app.quest_manager)
         if hasattr(self, "hud"):
             self.hud.show_prompt("Game Saved")
 
     def _exit_game(self):
         self._save_current_game()
-        self.userExit()
+        self.app.userExit()
 
     def _close_pause(self):
         self._paused = False
         if self._pause_ui:
-            self._pause_ui.destroy()
+            destroy(self._pause_ui)
             self._pause_ui = None
         self._sync_camera_ui_state()
 
     def _close_level_ui(self):
         closed = False
+        if hasattr(self, "crafting_ui") and self.crafting_ui.is_open():
+            self.crafting_ui.hide()
+            closed = True
         for obj in self._level_ui_interactables():
             if obj.ui_open:
                 obj.close_ui()
@@ -247,6 +224,8 @@ class Game(ShowBase):
         self._close_level_ui()
         spawn = self.level_manager.load_level(level_id, entry_key, hud=self.hud, force_regenerate=force_regenerate)
         self.player.terrain = self._active_level.world.terrain if self._active_level and self._active_level.world else None
+        # spawn is (x, height, z) in our new mental model? 
+        # LevelManager needs to return Y-up spawn.
         self._spawn_point = Vec3(*spawn)
         self.player.respawn((self._spawn_point.x, self._spawn_point.y, self._spawn_point.z))
         self.hud.clear_prompt()
@@ -261,7 +240,8 @@ class Game(ShowBase):
 
     def start_benchmark(self, target, expected_level=None):
         self._benchmark_target = target
-        self._benchmark_started = globalClock.getFrameTime()  # noqa: F821 - Panda3D global
+        from panda3d.core import ClockObject
+        self._benchmark_started = ClockObject.get_global_clock().get_frame_time()
         target_level = target.get_level() if hasattr(target, "get_level") else expected_level
         self.hud.set_benchmark_summary(
             f"Benchmark active vs {target.get_target_name()} Lv {target_level}"
@@ -270,9 +250,11 @@ class Game(ShowBase):
     def _update_benchmark(self):
         if self._benchmark_target is None:
             return
+        from panda3d.core import ClockObject
+        now = ClockObject.get_global_clock().get_frame_time()
         if self._benchmark_started is None:
-            self._benchmark_started = globalClock.getFrameTime()  # noqa: F821 - Panda3D global
-        elapsed = max(0.0, globalClock.getFrameTime() - self._benchmark_started)  # noqa: F821 - Panda3D global
+            self._benchmark_started = now
+        elapsed = max(0.0, now - self._benchmark_started)
         if self.player.dead:
             name = self._benchmark_target.get_target_name() if self._benchmark_target is not None else "target"
             self.hud.set_benchmark_summary(f"Failed vs {name} after {elapsed:.1f}s")
@@ -330,16 +312,43 @@ class Game(ShowBase):
     def _on_ranged_ability(self):
         self.combat_manager.begin_auto_attack("ranged", "Target too far for ranged")
 
-    def update(self, task):
-        if self._paused:
-            return task.cont
+    def handle_input(self, key):
+        key = key.lower()
+        if key == "i":
+            self.hud.toggle_inventory()
+        elif key == "c":
+            self.hud.toggle_equipment()
+        elif key == "k":
+            self.hud.toggle_skills()
+        elif key == "l":
+            self.hud.toggle_game_log()
+        elif key == "j":
+            self.hud.toggle_combat_log()
+        elif key == "f4":
+            self.hud.toggle_combat_debug()
+        elif key == "escape":
+            self._on_escape()
+        elif key == "e":
+            self._on_e_pressed()
+        elif key == "e up":
+            self._on_e_released()
+        elif key == "left mouse down":
+            self._on_mouse1()
+        elif key == "tab":
+            self.selection_manager.on_tab_target()
+        elif key == "1":
+            self._on_melee_ability()
+        elif key == "2":
+            self._on_ranged_ability()
+        elif key == "f3":
+            self._toggle_collision_debug()
 
-        dt = globalClock.getDt()  # noqa: F821 - Panda3D global
-        dt = min(dt, 0.05)
+    def update_frame(self, dt):
+        if self._paused:
+            return
 
         self.bullet_world.doPhysics(dt)
 
-        self.player.update(dt)
         self.crafting_ui.update(dt)
         player_pos = self.player.get_pos()
         self.cam_controller.update(
@@ -350,15 +359,6 @@ class Game(ShowBase):
             self.player.is_moving(),
             self.player.is_turning(),
         )
-
-        for resource in self._active_level.resources:
-            resource.update(dt, player_pos, self.player, self.inventory, self.skills, self.hud)
-        for interactable in self._level_interactables():
-            interactable.update(dt, player_pos, self.hud)
-        for teleporter in self._active_level.teleporters:
-            teleporter.update(player_pos, self.hud)
-        for hostile in self._active_level.hostiles:
-            hostile.update(dt, self.player, self.hud)
 
         self.combat_manager.update(dt)
         self.selection_manager.update()
@@ -408,9 +408,8 @@ class Game(ShowBase):
             self.hud.clear_death()
 
         self._sync_camera_ui_state()
-        return task.cont
 
 
 def main():
     game = Game()
-    game.run()
+    game.app.run()

@@ -11,6 +11,10 @@ setup(
     version="0.1.0",
     description="ARPG prototype",
     packages=find_packages(),
+    install_requires=[
+        "panda3d==1.10.16",
+        "ursina",
+    ],
     options={
         "build_apps": {
             "gui_apps": {
@@ -39,6 +43,7 @@ setup(
                 "game.app",
                 "game.core",
                 "game.entities",
+                "game.runtime",
                 "game.services",
                 "game.systems",
                 "game.ui",
