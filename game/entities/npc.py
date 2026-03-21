@@ -69,6 +69,25 @@ class InteractableNpc:
     def _build_visual(self):
         raise NotImplementedError
 
+    def update_prompt(self, player_pos, hud, ui_open=False):
+        # Distance on XZ plane
+        dx = player_pos.x - self.pos.x
+        dz = player_pos.z - self.pos.z
+        self._in_range = math.sqrt(dx * dx + dz * dz) <= self.proximity
+
+        if ui_open:
+            if self._prompt_shown:
+                hud.clear_prompt_if(self.prompt_text)
+                self._prompt_shown = False
+            return
+
+        if self._in_range:
+            hud.show_prompt(self.prompt_text)
+            self._prompt_shown = True
+        elif self._prompt_shown:
+            hud.clear_prompt_if(self.prompt_text)
+            self._prompt_shown = False
+
     def _build_ghost(self):
         shape = BulletSphereShape(self.proximity)
         ghost = BulletGhostNode(f"{self.__class__.__name__.lower()}_ghost")
@@ -89,24 +108,7 @@ class InteractableNpc:
         from ursina import time
         dt = time.dt
         self._animate(dt)
-
-        # Distance on XZ plane
-        dx = player_pos.x - self.pos.x
-        dz = player_pos.z - self.pos.z
-        self._in_range = math.sqrt(dx * dx + dz * dz) <= self.proximity
-
-        if ui_open:
-            if self._prompt_shown:
-                hud.clear_prompt_if(self.prompt_text)
-                self._prompt_shown = False
-            return
-
-        if self._in_range:
-            hud.show_prompt(self.prompt_text)
-            self._prompt_shown = True
-        elif self._prompt_shown:
-            hud.clear_prompt_if(self.prompt_text)
-            self._prompt_shown = False
+        self.update_prompt(player_pos, hud, ui_open=ui_open)
 
     def remove_from_world(self, hud=None):
         if hasattr(self, "close_ui"):

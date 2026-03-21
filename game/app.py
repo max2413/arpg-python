@@ -36,6 +36,10 @@ class Game:
         props = WindowProperties()
         props.setTitle("ARPG Prototype")
         self.app.win.requestProperties(props)
+        self._loading_ui = None
+        self._loading_status = None
+        self._show_loading_screen()
+        self._update_loading_screen("Bootstrapping runtime")
 
         self._paused = False
         self._pause_ui = None
@@ -51,6 +55,7 @@ class Game:
         self.bullet_world = BulletWorld()
         self.bullet_world.setGravity(Vec3(0, -25, 0))
         self._setup_collision_debug()
+        self._update_loading_screen("Preparing systems")
 
         self.runtime = RuntimeContext(self.app, self, self.bullet_world)
         set_runtime(self.runtime)
@@ -60,6 +65,7 @@ class Game:
         self.app.quest_manager = QuestManager(self)
         self.quest_manager = self.app.quest_manager
         load_game(self.inventory, self.skills, self.app.quest_manager)
+        self._update_loading_screen("Configuring scene")
 
         self._setup_lighting()
 
@@ -71,6 +77,7 @@ class Game:
         load_recipes()
         self.hud = HUD(self.inventory, self.skills, player=self.player, app=self.app)
         self.hud.refresh_health(self.player.get_health_display(), self.player.max_health)
+        self._update_loading_screen("Building interface")
         
         self.selection_manager = SelectionManager(self)
         self.combat_manager = CombatManager(self)
@@ -85,8 +92,10 @@ class Game:
             self.app.quest_manager.start_quest(create_tutorial_quest())
 
         self.crafting_ui = CraftingUI(self)
+        self._update_loading_screen("Generating world")
         self.level_manager = LevelManager(self.render, self.bullet_world, self.inventory, seed=world_seed)
         self._load_level("overworld", "default")
+        self._update_loading_screen("Preparing developer tools")
         self.dev_menu = DevMenu(self)
 
         self.runtime.player = self.player
@@ -96,9 +105,45 @@ class Game:
 
         self.app.accept("f1", self._toggle_dev_menu)
         self._driver = RuntimeDriver(self.update_frame, self.handle_input)
+        self._update_loading_screen("Ready")
+        self._hide_loading_screen()
 
     def _toggle_dev_menu(self):
         self.dev_menu.toggle()
+
+    def _show_loading_screen(self):
+        self._loading_ui = Entity(parent=camera.ui, z=-5)
+        Entity(parent=self._loading_ui, model="quad", color=color.rgba32(12, 16, 24, 255), scale=(2.2, 1.3), z=0)
+        Entity(parent=self._loading_ui, model="quad", color=color.rgba32(28, 38, 54, 255), scale=(0.66, 0.28), z=-0.01)
+        Text(parent=self._loading_ui, text="ARPG Prototype", origin=(0, 0), position=(0, 0.08, -0.02), scale=2.0, color=color.rgba32(235, 242, 255))
+        self._loading_status = Text(
+            parent=self._loading_ui,
+            text="Loading...",
+            origin=(0, 0),
+            position=(0, -0.02, -0.02),
+            scale=1.1,
+            color=color.rgba32(255, 220, 90),
+        )
+        self._flush_loading_frame()
+
+    def _update_loading_screen(self, message):
+        if self._loading_status is None:
+            return
+        self._loading_status.text = message
+        self._flush_loading_frame()
+
+    def _hide_loading_screen(self):
+        if self._loading_ui is not None:
+            destroy(self._loading_ui)
+            self._loading_ui = None
+            self._loading_status = None
+            self._flush_loading_frame()
+
+    def _flush_loading_frame(self):
+        try:
+            self.app.step()
+        except Exception:
+            pass
 
     def _setup_lighting(self):
         lighting = configure_scene_lighting()
@@ -351,6 +396,12 @@ class Game:
 
         self.crafting_ui.update(dt)
         player_pos = self.player.get_pos()
+        for teleporter in self._active_level.teleporters:
+            teleporter.update()
+        for interactable in self._level_interactables():
+            interactable.update(dt, player_pos, self.hud)
+        for resource in self._active_level.resources:
+            resource.update()
         self.cam_controller.update(
             dt,
             player_pos,

@@ -1,34 +1,64 @@
-"""Vendor NPC and draggable shop UI."""
+"""Vendor NPC and Ursina-native shop UI."""
 
 import json
 import math
 import os
 import random
 
-from panda3d.core import TextNode, Vec3
-from direct.gui.DirectGui import DGG, DirectFrame, DirectScrolledFrame, OnscreenText
+from panda3d.core import Vec3
+from ursina import Entity, Text as UText, color
 
 from game.entities.npc import ServiceNpc
 from game.runtime import get_runtime
-from game.systems.inventory import build_item_tooltip, clone_stack, get_item_def, is_stackable
+from game.systems.inventory import build_item_tooltip, clone_stack, get_item_def, get_item_name, is_stackable
 from game.systems.paths import data_path
-from game.ui.widgets import (
-    CONTEXT_MENU_MANAGER,
-    QUANTITY_PROMPT_MANAGER,
-    TOOLTIP_MANAGER,
-    DraggableWindow,
-    create_item_icon,
-    create_text_button,
-)
+from game.ui.ursina_widgets import FlatButton, UiWindow
 
 VENDOR_PROXIMITY = 5.0
 VENDOR_PATROL_RADIUS = 12.0
 VENDOR_PATROL_SPEED = 2.5
 VENDOR_WAIT_TIME = 4.0
 VENDOR_DATA_PATH = data_path("vendors.json")
+ROWS_PER_PAGE = 6
 
 VENDOR_CATALOGS = {}
 BUYBACK_QUEUE = []
+
+PANEL = color.rgba32(18, 26, 38)
+PANEL_ALT = color.rgba32(26, 36, 52)
+TEXT = color.rgba32(235, 242, 255)
+TEXT_DIM = color.rgba32(170, 186, 210)
+ACCENT = color.rgba32(255, 220, 90)
+BTN = color.rgba32(44, 66, 94)
+BTN_HI = color.rgba32(62, 88, 120)
+BTN_PRESS = color.rgba32(34, 50, 72)
+GOOD = color.rgba32(52, 166, 92)
+BAD = color.rgba32(182, 72, 72)
+
+
+def _wrap_text(text, width):
+    if not text:
+        return ""
+    lines = []
+    for raw_line in str(text).splitlines():
+        words = raw_line.split()
+        if not words:
+            lines.append("")
+            continue
+        current = []
+        current_len = 0
+        for word in words:
+            projected = len(word) if not current else current_len + 1 + len(word)
+            if projected > width and current:
+                lines.append(" ".join(current))
+                current = [word]
+                current_len = len(word)
+            else:
+                current.append(word)
+                current_len = projected
+        if current:
+            lines.append(" ".join(current))
+    return "\n".join(lines)
 
 
 def load_vendor_catalogs():
@@ -57,9 +87,9 @@ class Vendor(ServiceNpc):
         self.ui_open = False
         self._window = None
         self._active_tab = "buy"
-        self._tab_widgets = []
-        self._tab_scroll = None
-        self._tab_canvas = None
+        self._page = 0
+        self._row_entries = []
+        self._selected_entry = None
         self._gold_label = None
 
         self.patrol_center = Vec3(*pos)
@@ -115,149 +145,77 @@ class Vendor(ServiceNpc):
 
     def open_ui(self):
         self.ui_open = True
-        self._build_ui()
+        if self._window is None:
+            self._build_ui()
+        self._gold_label.text = f"Gold: {self._gold_count()}"
+        self.refresh_ui()
+        self._window.show()
+        self._window.focus()
 
     def close_ui(self):
         self.ui_open = False
-        CONTEXT_MENU_MANAGER.hide()
-        QUANTITY_PROMPT_MANAGER.hide()
-        if self._window:
-            self._window.destroy()
-            self._window = None
-            self._tab_widgets = []
-            self._tab_scroll = None
-            self._tab_canvas = None
-            self._gold_label = None
+        if self._window is not None:
+            self._window.hide()
 
     def _gold_count(self):
         return self.player_inv.count_item("gold")
 
     def _build_ui(self):
+        runtime = get_runtime()
+        parent = runtime.hud._ui_layer if runtime is not None and runtime.hud is not None else None
         title = self.vendor_data.get("name", "Vendor Shop")
-        self._window = DraggableWindow(title, (-0.7, 0.7, -0.65, 0.65), (0, 0, 0), self.close_ui)
-        body = self._window.body
-        self._gold_label = OnscreenText(
-            text=f"Gold: {self._gold_count()}",
-            parent=body,
-            pos=(0, 0.52),
-            scale=0.04,
-            fg=(1, 0.8, 0, 1),
-            align=TextNode.ACenter,
-            mayChange=True,
+        self._window = UiWindow(
+            title=title,
+            parent=parent,
+            position=(0.04, 0.0, 0),
+            scale=(1.10, 0.86),
+            panel_color=PANEL,
+            header_color=PANEL_ALT,
+            close_callback=self.close_ui,
         )
-        self._tab_buy_btn = create_text_button(
-            body,
-            "Buy",
-            (-0.24, 0, 0.42),
-            self._show_buy_tab,
-            scale=0.05,
-            min_half_width=1.0,
-            max_half_width=None,
-            padding=0.45,
-            frame_color=(0.3, 0.5, 0.3, 1),
-        )
-        self._tab_sell_btn = create_text_button(
-            body,
-            "Sell",
-            (0.0, 0, 0.42),
-            self._show_sell_tab,
-            scale=0.05,
-            min_half_width=1.0,
-            max_half_width=None,
-            padding=0.45,
-            frame_color=(0.3, 0.3, 0.5, 1),
-        )
-        self._tab_buyback_btn = create_text_button(
-            body,
-            "Buyback",
-            (0.28, 0, 0.42),
-            self._show_buyback_tab,
-            scale=0.05,
-            min_half_width=1.1,
-            max_half_width=None,
-            padding=0.45,
-            frame_color=(0.5, 0.36, 0.2, 1),
-        )
-        self._tab_scroll = DirectScrolledFrame(
-            parent=body,
-            canvasSize=(-0.65, 0.65, -0.6, 0.0),
-            frameSize=(-0.65, 0.65, -0.6, 0.35),
-            frameColor=(0.08, 0.08, 0.08, 0.65),
-            scrollBarWidth=0.04,
-            pos=(0, 0, -0.08),
-        )
-        self._tab_canvas = self._tab_scroll.getCanvas()
-        self._show_buy_tab()
+        body = self._window.content
 
-    def _clear_tab(self):
-        CONTEXT_MENU_MANAGER.hide()
-        for widget in self._tab_widgets:
-            widget.destroy()
-        self._tab_widgets = []
+        self._gold_label = UText(parent=body, text="Gold: 0", origin=(-0.5, 0.5), position=(-0.50, 0.31, -0.02), scale=0.88, color=ACCENT)
 
-    def _set_tab_canvas_size(self, bottom_y):
-        if self._tab_scroll is not None:
-            self._tab_scroll["canvasSize"] = (-0.65, 0.65, min(-0.6, bottom_y), 0.0)
+        self._tab_buy_btn = FlatButton(parent=body, text="Buy", position=(-0.18, 0.31, -0.02), scale=(0.12, 0.04), color_value=GOOD, highlight_color=GOOD.tint(.1), pressed_color=GOOD.tint(-.1), text_color=TEXT, text_scale=0.62, on_click=lambda: self._set_tab("buy"))
+        self._tab_sell_btn = FlatButton(parent=body, text="Sell", position=(-0.03, 0.31, -0.02), scale=(0.12, 0.04), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.62, on_click=lambda: self._set_tab("sell"))
+        self._tab_buyback_btn = FlatButton(parent=body, text="Buyback", position=(0.14, 0.31, -0.02), scale=(0.14, 0.04), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.58, on_click=lambda: self._set_tab("buyback"))
 
-    def _build_item_icon(self, item_id, x, y):
-        item_def = get_item_def(item_id)
-        icon_root = DirectFrame(
-            parent=self._tab_canvas,
-            frameColor=(0, 0, 0, 0),
-            frameSize=(0, 1, 0, 1),
-            pos=(x, 0, y - 0.055),
-            scale=0.11,
-        )
-        self._tab_widgets.append(icon_root)
-        if item_def:
-            create_item_icon(icon_root, item_def)
+        self._page_text = UText(parent=body, text="", origin=(0, 0.5), position=(0.38, 0.31, -0.02), scale=0.56, color=TEXT_DIM)
+        self._prev_btn = FlatButton(parent=body, text="Prev", position=(0.28, 0.31, -0.02), scale=(0.09, 0.036), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.52, on_click=lambda: self._change_page(-1))
+        self._next_btn = FlatButton(parent=body, text="Next", position=(0.48, 0.31, -0.02), scale=(0.09, 0.036), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.52, on_click=lambda: self._change_page(1))
 
-    def _build_row(self, item_id, y, price_text, right_click_builder, subtitle_text=None):
-        item_def = get_item_def(item_id)
-        row = DirectFrame(
-            parent=self._tab_canvas,
-            frameColor=(0.16, 0.16, 0.19, 0.9),
-            frameSize=(-0.62, 0.62, -0.055, 0.035),
-            pos=(0, 0, y),
-            relief=DGG.FLAT,
-        )
-        row.bind(DGG.B3PRESS, lambda _event, builder=right_click_builder: self._open_row_menu(builder))
-        TOOLTIP_MANAGER.bind(row, lambda item=item_id: build_item_tooltip(item))
-        self._tab_widgets.append(row)
+        y_positions = [0.20, 0.10, 0.00, -0.10, -0.20, -0.30]
+        for y in y_positions:
+            row_root = Entity(parent=body, position=(0, y, -0.02))
+            bg = Entity(parent=row_root, model="quad", color=PANEL_ALT, scale=(0.92, 0.082))
+            title_text = UText(parent=row_root, text="", origin=(-0.5, 0.5), position=(-0.43, 0.015, -0.02), scale=0.56, color=TEXT)
+            subtitle = UText(parent=row_root, text="", origin=(-0.5, 0.5), position=(-0.43, -0.017, -0.02), scale=0.36, color=TEXT_DIM)
+            price = UText(parent=row_root, text="", origin=(0.5, 0.5), position=(0.42, 0.001, -0.02), scale=0.46, color=ACCENT)
+            select_btn = FlatButton(parent=row_root, text="Select", position=(0.31, 0.0, -0.02), scale=(0.12, 0.038), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.52)
+            self._row_entries.append({"root": row_root, "bg": bg, "title": title_text, "subtitle": subtitle, "price": price, "select": select_btn, "payload": None})
 
-        self._build_item_icon(item_id, -0.59, y + 0.035)
-        self._tab_widgets.append(OnscreenText(
-            text=item_def["name"] if item_def else item_id,
-            parent=self._tab_canvas,
-            pos=(-0.45, y - 0.005),
-            scale=0.038,
-            fg=(0.94, 0.94, 0.94, 1),
-            align=TextNode.ALeft,
-        ))
-        if subtitle_text:
-            self._tab_widgets.append(OnscreenText(
-                text=subtitle_text,
-                parent=self._tab_canvas,
-                pos=(-0.45, y - 0.04),
-                scale=0.026,
-                fg=(0.67, 0.67, 0.72, 1),
-                align=TextNode.ALeft,
-            ))
-        self._tab_widgets.append(OnscreenText(
-            text=price_text,
-            parent=self._tab_canvas,
-            pos=(0.42, y - 0.005),
-            scale=0.035,
-            fg=(1, 0.82, 0.15, 1),
-            align=TextNode.ARight,
-        ))
+        Entity(parent=body, model="quad", color=PANEL_ALT, scale=(0.94, 0.20), position=(0, -0.49, -0.01))
+        self._detail_header = UText(parent=body, text="Selected Item", origin=(-0.5, 0.5), position=(-0.50, -0.41, -0.02), scale=0.66, color=ACCENT)
+        self._detail_title = UText(parent=body, text="Select an item", origin=(-0.5, 0.5), position=(-0.50, -0.46, -0.02), scale=0.66, color=TEXT)
+        self._detail_text = UText(parent=body, text="", origin=(-0.5, 0.5), position=(-0.50, -0.51, -0.02), scale=0.34, color=TEXT_DIM)
+        self._action_1 = FlatButton(parent=body, text="Action 1", position=(0.24, -0.44, -0.02), scale=(0.18, 0.038), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.54)
+        self._action_10 = FlatButton(parent=body, text="Action 10", position=(0.24, -0.50, -0.02), scale=(0.18, 0.038), color_value=BTN, highlight_color=BTN_HI, pressed_color=BTN_PRESS, text_color=TEXT, text_scale=0.54)
+        self._action_all = FlatButton(parent=body, text="Action All", position=(0.24, -0.56, -0.02), scale=(0.18, 0.038), color_value=GOOD, highlight_color=GOOD.tint(.1), pressed_color=GOOD.tint(-.1), text_color=TEXT, text_scale=0.54)
 
-    def _open_row_menu(self, action_builder):
-        actions = action_builder() or []
-        if actions:
-            CONTEXT_MENU_MANAGER.show_at_mouse(actions)
-        else:
-            CONTEXT_MENU_MANAGER.hide()
+        self._set_tab("buy")
+
+    def _set_tab(self, tab_name):
+        self._active_tab = tab_name
+        self._page = 0
+        self._selected_entry = None
+        self.refresh_ui()
+
+    def _change_page(self, delta):
+        entries = self._tab_entries()
+        max_page = max(0, (len(entries) - 1) // ROWS_PER_PAGE) if entries else 0
+        self._page = max(0, min(max_page, self._page + delta))
+        self.refresh_ui()
 
     def _iter_sell_entries(self):
         entries = []
@@ -271,96 +229,153 @@ class Vendor(ServiceNpc):
             qty_owned = self.player_inv.count_item(item_id)
             if qty_owned <= 0:
                 continue
-            entries.append((item_id, item_def, qty_owned))
+            entries.append({"item_id": item_id, "price": item_def["value"], "qty": qty_owned, "subtitle": f"Owned: {qty_owned}"})
         return entries
 
     def _visible_buyback_entries(self):
-        return [entry for entry in BUYBACK_QUEUE if entry.get("quantity", 0) > 0 and get_item_def(entry.get("item_id"))]
+        visible = []
+        for idx, entry in enumerate(BUYBACK_QUEUE):
+            if entry.get("quantity", 0) > 0 and get_item_def(entry.get("item_id")):
+                visible.append({"index": idx, "item_id": entry["item_id"], "price": entry["price"], "qty": entry["quantity"], "subtitle": f"Buy back qty: {entry['quantity']}"})
+        return visible
 
-    def _show_buy_tab(self):
-        self._active_tab = "buy"
-        self._clear_tab()
-        visible_stock = [(item_id, price) for item_id, price in self.stock.items() if get_item_def(item_id)]
-        bottom_y = 0.0
-        for idx, (item_id, buy_price) in enumerate(visible_stock):
-            y = 0.28 - idx * 0.12
-            bottom_y = y - 0.1
-            self._build_row(
-                item_id,
-                y,
-                f"{buy_price} gold",
-                lambda item=item_id, price=buy_price: self._build_buy_actions(item, price),
-                subtitle_text="Right-click to buy",
-            )
-        self._set_tab_canvas_size(bottom_y)
+    def _buy_entries(self):
+        return [
+            {"item_id": item_id, "price": price, "qty": None, "subtitle": "Buy from stock"}
+            for item_id, price in self.stock.items()
+            if get_item_def(item_id)
+        ]
 
-    def _show_sell_tab(self):
-        self._active_tab = "sell"
-        self._clear_tab()
-        y = 0.28
-        entries = self._iter_sell_entries()
-        bottom_y = 0.0
-        for item_id, item_def, qty_owned in entries:
-            sell_price = item_def["value"]
-            bottom_y = y - 0.1
-            self._build_row(
-                item_id,
-                y,
-                f"{sell_price} gold ea.",
-                lambda item=item_id, price=sell_price, qty=qty_owned: self._build_sell_entry_actions(item, price, qty),
-                subtitle_text=f"Owned: {qty_owned} | Right-click to sell",
-            )
-            y -= 0.12
-        if not entries:
-            self._tab_widgets.append(OnscreenText(
-                text="Nothing to sell.\nYou can also right-click items in inventory while the vendor is open.",
-                parent=self._tab_canvas,
-                pos=(0, 0.1),
-                scale=0.04,
-                fg=(0.6, 0.6, 0.6, 1),
-                align=TextNode.ACenter,
-            ))
-        self._set_tab_canvas_size(bottom_y)
+    def _tab_entries(self):
+        if self._active_tab == "buy":
+            return self._buy_entries()
+        if self._active_tab == "sell":
+            return self._iter_sell_entries()
+        return self._visible_buyback_entries()
 
-    def _show_buyback_tab(self):
-        self._active_tab = "buyback"
-        self._clear_tab()
-        entries = self._visible_buyback_entries()
-        y = 0.28
-        bottom_y = 0.0
-        for idx, entry in enumerate(entries):
-            bottom_y = y - 0.1
-            self._build_row(
-                entry["item_id"],
-                y,
-                f"{entry['price']} gold ea.",
-                lambda index=idx, item=entry["item_id"], qty=entry["quantity"]: self._build_buyback_actions(index, item, qty),
-                subtitle_text=f"Buy back qty: {entry['quantity']} | Right-click to repurchase",
+    def _refresh_tabs(self):
+        tab_colors = {
+            "buy": GOOD if self._active_tab == "buy" else BTN,
+            "sell": GOOD if self._active_tab == "sell" else BTN,
+            "buyback": GOOD if self._active_tab == "buyback" else BTN,
+        }
+        for btn, tint in ((self._tab_buy_btn, tab_colors["buy"]), (self._tab_sell_btn, tab_colors["sell"]), (self._tab_buyback_btn, tab_colors["buyback"])):
+            btn.base_color = tint
+            btn.color = tint
+            btn.setColorScale(tint)
+
+    def refresh_ui(self):
+        if self._window is None:
+            return
+        self._refresh_tabs()
+        self._gold_label.text = f"Gold: {self._gold_count()}"
+        entries = self._tab_entries()
+        max_page = max(0, (len(entries) - 1) // ROWS_PER_PAGE) if entries else 0
+        self._page = max(0, min(max_page, self._page))
+        self._prev_btn.visible = self._page > 0
+        self._next_btn.visible = self._page < max_page
+        self._page_text.text = f"Page {self._page + 1}/{max_page + 1}" if entries else "No items"
+
+        start = self._page * ROWS_PER_PAGE
+        visible = entries[start:start + ROWS_PER_PAGE]
+        for row, payload in zip(self._row_entries, visible + [None] * (len(self._row_entries) - len(visible))):
+            if payload is None:
+                row["root"].enabled = False
+                row["payload"] = None
+                continue
+            row["root"].enabled = True
+            row["payload"] = payload
+            row["title"].text = get_item_name(payload["item_id"])
+            row["subtitle"].text = payload["subtitle"]
+            row["price"].text = f"{payload['price']}g"
+            tint = GOOD if self._selected_entry == payload else BTN
+            row["select"].base_color = tint
+            row["select"].color = tint
+            row["select"].setColorScale(tint)
+            row["select"]._click_callback = lambda entry=payload: self._select_entry(entry)
+
+        self._refresh_detail()
+
+    def _select_entry(self, payload):
+        self._selected_entry = payload
+        self.refresh_ui()
+
+    def _refresh_detail(self):
+        entry = self._selected_entry
+        if entry is None:
+            self._detail_header.text = "Selected Item"
+            self._detail_title.text = "Select an item"
+            self._detail_text.text = _wrap_text("Choose an item from the active tab to trade.", 44)
+            self._set_action_buttons(None, None, None)
+            return
+
+        item_id = entry["item_id"]
+        self._detail_title.text = get_item_name(item_id)
+        self._detail_text.text = _wrap_text(build_item_tooltip(item_id, quantity=entry["qty"]), 46)
+
+        if self._active_tab == "buy":
+            self._detail_header.text = "Buy Item"
+            max_affordable = self._gold_count() // entry["price"] if entry["price"] > 0 else 0
+            max_qty = self._max_receivable_qty(item_id, max_affordable)
+            self._set_action_buttons(
+                ("Buy 1", lambda: self.buy_from_stock(item_id, entry["price"], 1)) if max_qty > 0 else None,
+                ("Buy 10", lambda: self.buy_from_stock(item_id, entry["price"], min(10, max_qty))) if max_qty > 0 else None,
+                ("Buy All", lambda: self.buy_from_stock(item_id, entry["price"], max_qty)) if max_qty > 0 else None,
             )
-            y -= 0.12
-        if not entries:
-            self._tab_widgets.append(OnscreenText(
-                text="No recent sales to buy back.",
-                parent=self._tab_canvas,
-                pos=(0, 0.1),
-                scale=0.04,
-                fg=(0.6, 0.6, 0.6, 1),
-                align=TextNode.ACenter,
-            ))
-        self._set_tab_canvas_size(bottom_y)
+        elif self._active_tab == "sell":
+            self._detail_header.text = "Sell Item"
+            max_qty = max(0, int(entry["qty"]))
+            self._set_action_buttons(
+                ("Sell 1", lambda: self.sell_item_by_id(item_id, entry["price"], 1)) if max_qty > 0 else None,
+                ("Sell 10", lambda: self.sell_item_by_id(item_id, entry["price"], min(10, max_qty))) if max_qty > 0 else None,
+                ("Sell All", lambda: self.sell_item_by_id(item_id, entry["price"], max_qty)) if max_qty > 0 else None,
+            )
+        else:
+            self._detail_header.text = "Buy Back Item"
+            max_qty = max(0, int(entry["qty"]))
+            self._set_action_buttons(
+                ("Buy Back 1", lambda: self.buyback_item(entry["index"], 1)) if max_qty > 0 else None,
+                ("Buy Back 10", lambda: self.buyback_item(entry["index"], min(10, max_qty))) if max_qty > 0 else None,
+                ("Buy Back All", lambda: self.buyback_item(entry["index"], max_qty)) if max_qty > 0 else None,
+            )
+
+    def _set_action_buttons(self, primary, secondary, tertiary):
+        for btn, spec, base in (
+            (self._action_1, primary, BTN),
+            (self._action_10, secondary, BTN),
+            (self._action_all, tertiary, GOOD),
+        ):
+            if spec is None:
+                btn.enabled = False
+                btn.visible = True
+                btn.label.text = "-"
+                btn.color = BTN
+                btn.setColorScale(BTN)
+                btn._click_callback = None
+                continue
+            text, callback = spec
+            btn.enabled = True
+            btn.visible = True
+            btn.label.text = text
+            btn.base_color = base
+            btn.color = base
+            btn.setColorScale(base)
+            btn._click_callback = callback
 
     def _refresh_after_transaction(self):
-        if self._gold_label is not None:
-            self._gold_label.setText(f"Gold: {self._gold_count()}")
         runtime = get_runtime()
         if runtime is not None and runtime.hud is not None:
             runtime.hud.refresh_inventory()
-        if self._active_tab == "buy":
-            self._show_buy_tab()
-        elif self._active_tab == "sell":
-            self._show_sell_tab()
-        else:
-            self._show_buyback_tab()
+        current_item = self._selected_entry["item_id"] if self._selected_entry else None
+        self.refresh_ui()
+        if current_item is not None:
+            for entry in self._tab_entries():
+                if entry["item_id"] == current_item:
+                    self._selected_entry = entry
+                    break
+            else:
+                self._selected_entry = None
+        self.refresh_ui()
 
     def _max_receivable_qty(self, item_id, requested_qty):
         requested_qty = max(0, int(requested_qty))
@@ -452,7 +467,7 @@ class Vendor(ServiceNpc):
         if not (0 <= entry_index < len(entries)):
             return False
         entry = entries[entry_index]
-        qty = min(int(qty), int(entry["quantity"]))
+        qty = min(int(qty), int(entry["qty"]))
         qty = min(qty, self._gold_count() // entry["price"] if entry["price"] > 0 else qty)
         qty = self._max_receivable_qty(entry["item_id"], qty)
         if qty <= 0:
@@ -470,75 +485,15 @@ class Vendor(ServiceNpc):
             self.player_inv.add_item("gold", entry["price"] * (qty - added))
         if added <= 0:
             return False
-        entry["quantity"] -= added
+        BUYBACK_QUEUE[entry["index"]]["quantity"] -= added
         self._refresh_after_transaction()
         return True
 
-    def _build_buy_actions(self, item_id, price):
-        max_affordable = self._gold_count() // price if price > 0 else 0
-        max_qty = self._max_receivable_qty(item_id, max_affordable)
-        if max_qty <= 0:
-            return []
-        return [
-            {"label": "Buy 1", "callback": lambda item=item_id, unit_price=price: self.buy_from_stock(item, unit_price, 1)},
-            {
-                "label": "Buy 10",
-                "callback": lambda item=item_id, unit_price=price, qty=max_qty: self.buy_from_stock(item, unit_price, min(10, qty)),
-            },
-            {
-                "label": "Buy X",
-                "callback": lambda item=item_id, unit_price=price, qty=max_qty: QUANTITY_PROMPT_MANAGER.ask(
-                    f"Buy {item}",
-                    qty,
-                    lambda amount: self.buy_from_stock(item, unit_price, amount),
-                    min(10, qty),
-                ),
-            },
-        ]
-
-    def _build_sell_entry_actions(self, item_id, price, qty_owned):
-        max_qty = max(0, int(qty_owned))
-        if max_qty <= 0:
-            return []
-        return [
-            {"label": "Sell 1", "callback": lambda item=item_id, unit_price=price: self.sell_item_by_id(item, unit_price, 1)},
-            {
-                "label": "Sell 10",
-                "callback": lambda item=item_id, unit_price=price, qty=max_qty: self.sell_item_by_id(item, unit_price, min(10, qty)),
-            },
-            {
-                "label": "Sell X",
-                "callback": lambda item=item_id, unit_price=price, qty=max_qty: QUANTITY_PROMPT_MANAGER.ask(
-                    f"Sell {item}",
-                    qty,
-                    lambda amount: self.sell_item_by_id(item, unit_price, amount),
-                    min(10, qty),
-                ),
-            },
-        ]
-
-    def _build_buyback_actions(self, entry_index, item_id, max_qty):
-        if max_qty <= 0:
-            return []
-        entries = self._visible_buyback_entries()
-        if not (0 <= entry_index < len(entries)):
-            return []
-        return [
-            {"label": "Buy Back 1", "callback": lambda index=entry_index: self.buyback_item(index, 1)},
-            {
-                "label": "Buy Back 10",
-                "callback": lambda index=entry_index, qty=max_qty: self.buyback_item(index, min(10, qty)),
-            },
-            {
-                "label": "Buy Back X",
-                "callback": lambda index=entry_index, qty=max_qty, item=item_id: QUANTITY_PROMPT_MANAGER.ask(
-                    f"Buy Back {item}",
-                    qty,
-                    lambda amount: self.buyback_item(index, amount),
-                    min(10, qty),
-                ),
-            },
-        ]
+    def remove_from_world(self, hud=None):
+        if self._window is not None:
+            self._window.destroy()
+            self._window = None
+        super().remove_from_world(hud)
 
 
 load_vendor_catalogs()

@@ -7,8 +7,10 @@ from panda3d.core import Vec3
 from ursina import time as ursina_time
 
 from game.runtime import RuntimeContext, get_runtime, set_runtime
+from game.app import Game
+from game.services.bank import Bank
 from game.services.crafting import CraftingStation
-from game.services.vendor import Vendor
+from game.services.vendor import BUYBACK_QUEUE, Vendor
 from game.systems.inventory import Inventory
 from game.ui.hud import HUD
 from game.world.resources import DEPLETED, HARVESTING, ResourceNode
@@ -102,6 +104,14 @@ class _DummyCraftingUi:
 
 class _DummyHudCraftingUi(_DummyCraftingUi):
     pass
+
+
+class _DummyLevelObject:
+    def __init__(self):
+        self.calls = []
+
+    def update(self, *args):
+        self.calls.append(args)
 
 
 class PortRuntimeTests(unittest.TestCase):
@@ -240,6 +250,116 @@ class PortRuntimeTests(unittest.TestCase):
 
         self.assertTrue(hud._skill_visible)
         self.assertEqual(crafting_ui.skill_calls, ["Blacksmithing"])
+
+    def test_bank_transfer_methods_move_items_between_inventories(self):
+        bank = Bank.__new__(Bank)
+        bank.player_inv = Inventory(size=4)
+        bank.bank_inv = Inventory(size=4)
+        bank._save = lambda: None
+        bank.refresh_ui = lambda: None
+        bank._window = None
+        bank.player_inv.add_item("pine_log", 5)
+
+        self.assertTrue(Bank.deposit_from_inventory(bank, 0, 3))
+        self.assertEqual(bank.player_inv.count_item("pine_log"), 2)
+        self.assertEqual(bank.bank_inv.count_item("pine_log"), 3)
+
+        self.assertTrue(Bank.withdraw_to_inventory(bank, 0, 2))
+        self.assertEqual(bank.player_inv.count_item("pine_log"), 4)
+        self.assertEqual(bank.bank_inv.count_item("pine_log"), 1)
+
+    def test_bank_auto_select_defaults_prefers_first_filled_slots(self):
+        bank = Bank.__new__(Bank)
+        bank.player_inv = Inventory(size=4)
+        bank.bank_inv = Inventory(size=4)
+        bank._selected_player_slot = None
+        bank._selected_bank_slot = None
+        bank.player_inv.add_item("pine_log", 1)
+        bank.bank_inv.add_item("copper_ore", 1)
+
+        Bank._auto_select_defaults(bank)
+
+        self.assertEqual(bank._selected_player_slot, 0)
+        self.assertEqual(bank._selected_bank_slot, 0)
+
+    def test_vendor_buy_sell_and_buyback_flow(self):
+        vendor = Vendor.__new__(Vendor)
+        vendor.player_inv = Inventory(size=8)
+        vendor.vendor_data = {"stock": {"pine_log": 2}}
+        vendor._selected_entry = None
+        vendor._active_tab = "buy"
+        vendor.refresh_ui = lambda: None
+        vendor._window = None
+        BUYBACK_QUEUE.clear()
+        vendor.player_inv.add_item("gold", 20)
+
+        self.assertTrue(Vendor.buy_from_stock(vendor, "pine_log", 2, 3))
+        self.assertEqual(vendor.player_inv.count_item("pine_log"), 3)
+        self.assertEqual(vendor.player_inv.count_item("gold"), 14)
+
+        self.assertTrue(Vendor.sell_item_by_id(vendor, "pine_log", 1, 2))
+        self.assertEqual(vendor.player_inv.count_item("pine_log"), 1)
+        self.assertEqual(vendor.player_inv.count_item("gold"), 16)
+        self.assertEqual(BUYBACK_QUEUE[0]["item_id"], "pine_log")
+        self.assertEqual(BUYBACK_QUEUE[0]["quantity"], 2)
+
+        self.assertTrue(Vendor.buyback_item(vendor, 0, 1))
+        self.assertEqual(vendor.player_inv.count_item("pine_log"), 2)
+        self.assertEqual(vendor.player_inv.count_item("gold"), 15)
+
+    def test_game_update_frame_updates_interactables_teleporters_and_resources(self):
+        game = Game.__new__(Game)
+        game._paused = False
+        game.bullet_world = type("BulletWorldStub", (), {"doPhysics": lambda self, dt: None})()
+        game.crafting_ui = type("CraftingUiStub", (), {"update": lambda self, dt: None, "is_open": lambda self: False})()
+        game.player = type(
+            "PlayerStub",
+            (),
+            {
+                "get_pos": lambda self: Vec3(1, 2, 3),
+                "get_heading": lambda self: 0,
+                "is_advancing": lambda self: False,
+                "is_moving": lambda self: False,
+                "is_turning": lambda self: False,
+                "update_projectiles": lambda self, dt, hud: None,
+                "get_health_display": lambda self: 10,
+                "max_health": 10,
+                "dead": False,
+            },
+        )()
+        game.cam_controller = type("CameraStub", (), {"update": lambda self, *args: None, "set_ui_open": lambda self, value: None})()
+        game.combat_manager = type("CombatStub", (), {"update": lambda self, dt: None})()
+        game.selection_manager = type("SelectionStub", (), {"update": lambda self: None, "selected_target": None})()
+        game.hud = type(
+            "HudStub",
+            (),
+            {
+                "refresh_health": lambda self, a, b: None,
+                "refresh_player_level": lambda self, level: None,
+                "clear_target": lambda self: None,
+                "clear_range_indicators": lambda self: None,
+                "refresh_combat_debug": lambda self, player, target: None,
+                "clear_death": lambda self: None,
+            },
+        )()
+        game.skills = type("SkillsStub", (), {"get_combat_level": lambda self: 1})()
+        game._update_benchmark = lambda: None
+        game._sync_camera_ui_state = lambda: None
+        game._was_player_dead = False
+        game._respawn_timer = 0.0
+        teleporter = _DummyLevelObject()
+        interactable = _DummyLevelObject()
+        resource = _DummyLevelObject()
+        active_level = type("LevelStub", (), {"teleporters": [teleporter], "interactables": [interactable], "resources": [resource]})()
+        game.level_manager = type("LevelManagerStub", (), {"get_active_level": lambda self: active_level})()
+
+        Game.update_frame(game, 0.16)
+
+        self.assertEqual(len(teleporter.calls), 1)
+        self.assertEqual(len(interactable.calls), 1)
+        self.assertEqual(interactable.calls[0][0], 0.16)
+        self.assertEqual(interactable.calls[0][1], Vec3(1, 2, 3))
+        self.assertEqual(len(resource.calls), 1)
 
 
 if __name__ == "__main__":
